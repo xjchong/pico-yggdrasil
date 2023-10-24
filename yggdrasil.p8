@@ -3,6 +3,7 @@ version 41
 __lua__
 function _init()
  frame = 0
+ btn_bfr = nil
  p_sprs, is_p_flip = {1, 2}, false
  
  --x and y deltas
@@ -30,6 +31,7 @@ function start_game()
  p_x, p_y = 3, 6
  p_xo, p_yo = 0, 0 
  p_flip = false
+ p_anim_spd = 0
 end
 
 
@@ -38,26 +40,25 @@ end
 --updates
 
 function update_game()
- for i=1, 4 do
-  if btnp(i-1) then
-   move_p(dxs[i], dys[i])
-  end
+ load_btn_bfr()
+ 
+ if btn_bfr then
+  handle_btn(btn_bfr)
+  btn_bfr = nil
  end
 end
 
 function update_anim()
- if upd_anim_i == 5 then
-  upd_anim_i = nil
+ load_btn_bfr()
+ 
+ if p_xo==0 and p_yo==0 then
   _upd_fn = update_game
   return
- elseif upd_anim_i == nil then
-  upd_anim_i = 1
-  _upd_fn = update_anim
  end
-
- p_xo = p_anim[upd_anim_i]
- p_yo = p_anim[upd_anim_i+4]
- upd_anim_i += 1
+ 
+ _upd_fn = update_anim
+ p_xo = approach(p_xo, 0, p_anim_spd)
+ p_yo = approach(p_yo, 0, p_anim_spd)
 end
 
 function update_gameover()
@@ -102,38 +103,31 @@ function draw_sprite(_sprite, _x, _y, _color, _flip)
  pal()
 end
 
--- multiplies each element in array by x and then y factor for animation
-function anim_array_factor(arr, x_factor, y_factor)
- local new_arr = {}
- for i=1, 4 do
-  new_arr[i] = arr[i]*x_factor
-  new_arr[i+4] = arr[i]*y_factor
- end
- 
- return new_arr
-end
+function approach(a, target, speed)
+ return a<target and min(a+speed, target) or max(a-speed, target)
+end 
 -->8
---gameplay tools
+--input tools
+
+function load_btn_bfr()
+ for i=0, 5 do
+  if btnp(i) then
+   btn_bfr = i
+   return
+  end
+ end
+end
+
+function handle_btn(_btn)
+ if (not _btn) return
+ 
+ if _btn<4 then
+  move_p(dxs[_btn+1], dys[_btn+1])
+ end
+end
+
 -->8
 --player movement
-
---[[
-the way im doing animations
-is with an array describing
-how to interpolate the offset.
-
-there will be 4 frames for an animation.
-the actual animation array needs
-to have 8 values, {x,x,x,x,y,y,y,y}.
-
-upd_anim_i is the index that will track
-which frame of the animation we are on.
---]]
-
-walk_anim = {-6,-4,-2,0}
-bump_anim = {1,2,1,0}
-p_anim = nil
-upd_anim_i = nil
 
 function move_p(dx, dy)
  local dest_x, dest_y = p_x+dx, p_y+dy
@@ -145,12 +139,12 @@ function move_p(dx, dy)
  
  if fget(tile, 0) then
   --not walkable
-  p_anim = anim_array_factor(bump_anim, dx, dy)
+  p_xo, p_yo, p_anim_spd = 4*dx, 4*dy, 1
   update_anim() 
  else
   p_x += dx
 	 p_y += dy
-  p_anim = anim_array_factor(walk_anim, dx, dy)
+	 p_xo, p_yo, p_anim_spd = -8*dx, -8*dy, 2
 	 update_anim()
  end
  
