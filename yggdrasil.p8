@@ -7,7 +7,11 @@ function _init()
  p_sprs, is_p_flip = {1, 2, 3, 4}, false
  
  --x and y deltas
- dxs, dys = {-1, 1, 0, 0, 1, 1, -1, -1}, {0, 0, -1, 1, -1, 1, 1, -1}
+ dxs,dys={-1,1,0,0,1,1,-1,-1},{0,0,-1,1,-1,1,1,-1}
+ --neighbor deltas for 1d position
+ --goes left right up down
+ dnbors={-1,1,-16,16}
+ shuf_dnbors={-1,1,-16,16} --use for shuffling.
  
  --delegates for update functions
  _upd_fn, _draw_fn = update_game, draw_game
@@ -30,16 +34,25 @@ end
 function start_game()
  mobs={}
  player=add_mob(1,3,7)
- add_mob(2,4,5)
- for x=11,13 do
-  for y=9,11 do
-   add_mob(2,x,y)
+ 
+ --temporary convenience
+ --for adding mobs via map
+ for x=0,15 do
+  for y=0,15 do
+   local tile=mget(x,y)   
+   if tile==5 then
+    add_mob(2,x,y)
+    mset(x,y,192)
+   end
   end
  end
  
- toasts = {}
- windows = {}
- msg_window = nil
+ p_dist_map=get_dist_map(
+  xy_to_pos(player.x,player.y)
+ )
+ toasts={}
+ windows={}
+ msg_window=nil
 end
 
 
@@ -66,14 +79,22 @@ end
 function update_anim()
  load_btn_bfr()
  
- if player.xo==0 and player.yo==0 then
-  _upd_fn = update_game
-  return
+ local done = true
+ 
+ for m in all(mobs) do
+  if m.xo!=0 or m.yo!=0 then
+   done = false
+   m.xo = approach(m.xo,0,m.anim_spd)
+   m.yo = approach(m.yo,0,m.anim_spd)
+  end
  end
  
- _upd_fn = update_anim
- player.xo = approach(player.xo,0,player.anim_spd)
- player.yo = approach(player.yo,0,player.anim_spd)
+ --did everybody finish animating?
+ if done then
+  _upd_fn = update_game
+ else
+  _upd_fn = update_anim
+ end
 end
 
 function update_gameover()
@@ -86,7 +107,19 @@ function draw_game()
  palt(0, false)
  cls(0)
  map()
+
+ draw_mobs()
+ draw_toasts()
  
+ pal(0,131,1) --background color
+ pal(5,3,1) --disabled color
+ pal(6,6,1) --player color
+ pal(4,134,1) --wall color
+ pal(8,8,1) --mob color
+ --pal(10, 9, 1) --interactibles highlight color
+end
+
+function draw_mobs()
  for m in all(mobs) do
   local clr = nil
   if (m.flash>0) clr=7
@@ -100,15 +133,16 @@ function draw_game()
    m.flipped
   )
  end
- 
- draw_toasts()
- 
- pal(0,131,1) --background color
- pal(5,3,1) --disabled color
- pal(6,6,1) --player color
- pal(4,134,1) --wall color
- pal(8,8,1) --mob color
- --pal(10, 9, 1) --interactibles highlight color
+end
+
+function draw_dist_map(dmap)
+ for pos=1,256 do
+  local x,y=pos_to_xy(pos)
+  local dist=dmap[pos]
+  if dist then
+   print(tostring(dist),x*8,y*8,7)
+  end
+ end
 end
 
 function draw_gameover()
@@ -253,23 +287,94 @@ end
 -->8
 --misc
 
-function oob(x,y)
- return x<0 or x>15 or y<0 or y>15
+--is 'from' position adjacent
+--to 'to' position, where each
+--position is a 1d-pos.
+function is_adj(fpos,tpos)
+ local fx,fy=pos_to_xy(fpos)
+ local tx,ty=pos_to_xy(tpos)
+ local dx,dy=abs(fx-tx),abs(fy-ty)
+ return abs(dx)<=1 --didn't go oob horizontally
+  and abs(dy)<=1 --didn't go oob vertically
+  and abs(dx+dy)<2 --didn't go diagonally
 end
 
 --[[
 mode can be one of:
  "move": would this pos be movable to
 ]]--
-function blocked(x,y,mode)
+function blocked(fpos,tpos,mode)
+ local x,y=pos_to_xy(tpos)
  local tile=mget(x,y)
  if mode=="move" then
-  return oob(x,y) 
+  return not is_adj(fpos,tpos) 
+   or fget(tile,0) 
+   or get_mob(x,y)~=nil
+ elseif mode=="move_thru_mobs" then
+  return not is_adj(fpos,tpos)
    or fget(tile,0)
-   or get_mob(x,y)
  end
 end
 
+--get pythag distance between
+--'from' and 'to' positions
+function dist(fx,fy,tx,ty)
+ local dx,dy=fx-tx,fy-ty
+ return sqrt(dx*dx+dy*dy)
+end
+
+--shuffle a table via fisher-yates.
+function shuffle(t)
+ for i=#t,1,-1 do
+  local j = flr(rnd(i))+1
+  t[i],t[j]=t[j],t[i]
+ end
+end
+
+--get random element from table.
+function get_rnd(t)
+ return t[flr(1+rnd(#t))]
+end
+
+--return table indexed by 1d-pos
+--where the valus indicate the
+--walkable dist from original position
+function get_dist_map(o_pos)
+ local q,dist,dmap={o_pos},0,{}
+ 
+ while #q>0 do
+  for i=1,#q do
+   local pos=deli(q,1)
+   dmap[pos]=dist
+   for dnbor in all(dnbors) do
+    local nbor = pos+dnbor
+    if not dmap[nbor] 
+      and not blocked(pos,nbor,"move_thru_mobs") 
+      then
+     add(q,nbor)
+    end
+   end
+  end
+  dist+=1
+ end
+ 
+ return dmap
+end
+
+--convert x and y to 1d-pos
+function xy_to_pos(x,y)
+ return x+y*16+1
+end
+
+--returns x,y (0 indexed)
+--from pos (1 indexed)
+function pos_to_xy(pos)
+ return (pos-1)%16, flr((pos-1)/16)
+end
+
+function logd(msg)
+ show_timed_msg(msg,60,11)
+end
 -->8
 --input
 
@@ -291,55 +396,73 @@ function handle_btn(_btn)
    msg_window = nil
   end
  elseif _btn<4 then
-  move_mob(player,dxs[_btn+1],dys[_btn+1])
+  local did_act = move_mob(player,dxs[_btn+1],dys[_btn+1])
+  if did_act then
+   p_dist_map=get_dist_map(
+    mob_pos(player)
+   )
+   update_ai()
+  end
  end
 end
 
 -->8
 --movement
 
+function move_mob_pos(m,tpos)
+ local tx,ty=pos_to_xy(tpos)
+ return move_mob(m,tx-m.x,ty-m.y)
+end
+
 function move_mob(m,dx,dy)
  local dest_x, dest_y = m.x+dx, m.y+dy
+ local fpos,tpos=xy_to_pos(m.x,m.y),xy_to_pos(dest_x,dest_y)
  local tile = mget(dest_x, dest_y)
-
+ local did_act = false
+ 
  --handle orientation
  if (dx<0) m.flipped = true
  if (dx>0) m.flipped = false
  
- if blocked(dest_x,dest_y,"move") then
+ if blocked(fpos,tpos,"move") then
   --not walkable
   m.xo,m.yo,m.anim_spd=4*dx,4*dy,1
  else
+  --walkable
   m.x+=dx
 	 m.y+=dy
 	 m.xo,m.yo,m.anim_spd=-8*dx,-8*dy,2
-	 sfx(0)
+	 did_act = true
+	 
+	 --player makes a walking sound.
+	 if (m==player) sfx(0)
  end
 
- handle_interact(m,tile,dest_x,dest_y)
+ did_act = handle_interact(m,tile,dest_x,dest_y) 
+  or did_act
  
  --moving the player does special things
- if (m.typ==1) then
+ if (m==player) then
   update_anim()
  end
+ 
+ return did_act
 end
 
 function handle_interact(mob,tile,x,y)
  local other=get_mob(x,y)
 
  if other 
-   and mob~=other
-   and (
-    is_player(mob) 
-    or is_player(other)
-   ) then
+   and mob!=other
+   and (mob==player or other==player)
+   then
   --handle combat
   hit_mob(mob,other)
   sfx(9)
-  return
+  return true
  end
  
- if (not is_player(mob)) return
+ if (mob!=player) return false
   
  if tile==202 or tile==201 then
   --vases
@@ -359,12 +482,17 @@ function handle_interact(mob,tile,x,y)
  elseif tile==222 then
   --signs
   if x==6 and y==5 then
-   show_msg({" welcome to yggdrasil","","ascend the sacred tree","  and find salvation"},10)
+   show_msg({" welcome to yggdrasil","","ascend the sacred tree","  and find salvation","","  ...just kidding"},10)
   elseif x==10 and y==7 then
    show_timed_msg("i will disappear...",60,10)
   end
   sfx(7)
+  return false
+ else
+  return false
  end
+ 
+ return true
 end
 
 -->8
@@ -380,13 +508,9 @@ mobs:
  2-slime
 --]] 
 
-mob_hps={5,2}
+mob_hps={99,2}
 mob_atks={1,1}
 mob_anims={{1,2,3,4},{5,6,5,7}}
-
-function is_player(mob)
- return mob.typ==1
-end
 
 function add_mob(_typ,_x,_y)
  local m={
@@ -408,13 +532,16 @@ end
 
 function get_mob(x,y)
  for m in all(mobs) do
-  if m.x==x and m.y ==y then
+  if m.x==x and m.y==y then
    return m
   end
  end
 end
 
 function hit_mob(atkr,defr)
+ local toast_clr = 10
+ if (defr==player) toast_clr=9
+ 
  defr.flash=8
  defr.hp-=atkr.atk
  
@@ -422,8 +549,73 @@ function hit_mob(atkr,defr)
   "-"..tostring(atkr.atk),
   defr.x*8,
   defr.y*8,
-  10 --toast color
+  toast_clr --toast color
  )
+end
+
+function mob_pos(m)
+ return xy_to_pos(m.x,m.y)
+end
+-->8
+--ai
+
+function update_ai()
+ for m in all(mobs) do
+  if m.typ==2 then --slimes
+   --slimes will usually try
+   --to chase the player if
+   --they are close enough,
+   --but sometimes move randomly
+   local p_dist=p_dist_map[mob_pos(m)] or 999
+   if p_dist>5 or rnd(100)<30 then
+    ai_move_rnd(m)
+   else
+    ai_move_chase(m)
+   end
+  end
+ end
+end
+
+--returns a random move that
+--only checks for obstacles
+function ai_move_rnd(m)
+ local pos=mob_pos(m)
+ 
+ shuffle(shuf_dnbors)
+ for dnbor in all(shuf_dnbors) do
+  local tpos=pos+dnbor --'to' pos
+  if not blocked(pos,tpos,"move_thru_mobs") then
+   move_mob_pos(m,tpos)
+   return
+  end
+ end
+ 
+ --if no move was selected, still attempt to move
+ move_mob_pos(m,pos+shuf_dnbors[1])
+end
+
+--returns the move that will
+--bring this mob closest to 
+--the player
+function ai_move_chase(m)
+ local pos=mob_pos(m)
+ local cur_dist=p_dist_map[pos]
+ 
+ --use the player's dist map
+ --to get closer to player
+ for dnbor in all(dnbors) do
+  local tpos=pos+dnbor
+  local nxt_dist=p_dist_map[tpos]
+  if nxt_dist 
+    and cur_dist 
+    and nxt_dist<cur_dist then
+   move_mob_pos(m,tpos)
+   return
+  end
+ end
+ 
+ --fallback is to move randomly
+ ai_move_rnd(m)
 end
 __gfx__
 00000000000000000006060000000000000606000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -673,19 +865,19 @@ __gff__
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000003030303030200000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000000
 __map__
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c1c1c1c1c1c1c1c1c105c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c9cdcac1cadddcc9c1c1c1c9cccac100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c0c0cbc0c0c0c0c0c0cbc0c0c9c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c0c0cbc0c0c0c0c0c0cbc005c9c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c0c1c1c1c0c1c1c0c1c1c1c9c0cac100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c1c1c0c0dec0c0c0cec1cac0c0c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c1c105c0dec0c0c0cec1cac0c0c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c0c1c1c0c0c0c0cdc1c1c1c1c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c0c1cfc0c0c0c0ccc1dec1c1c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c0c1c1c1c1dbc1c1c1c0c0c0c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c0c0c0c1c0c1c1c1c0c0c0c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c1c1c0c0c0c0c0c0c0c0c0c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c0c0c0c1c0c1c1c1c005c0c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c1c1c0c0c0c0c0c0c0c0c005c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c0c1c1c0c1c1cbc1c1c0c0c0c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c1c1c0c1cdc0c1c1c0c0c0c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c0c0c0c1c9cac1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c1c1c0c1cdc0c1c1c0c005c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c0c005c1c9cac1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __sfx__
