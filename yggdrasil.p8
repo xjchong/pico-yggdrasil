@@ -2,8 +2,8 @@ pico-8 cartridge // http://www.pico-8.com
 version 41
 __lua__
 function _init()
- frame = 0
- btn_bfr = nil
+ frame=0
+ btn_bfr=nil
  allow_input=true
  
  --colors used to provide fadeout effect
@@ -16,10 +16,12 @@ function _init()
  dnbors={-1,1,-16,16}
  shuf_dnbors={-1,1,-16,16} --use for shuffling.
  
+ init_btns()
  start_game()
 end
 
 function _update60()
+ upd_btns()
  --don't allow input while
  --screen is transitioning
  allow_input=fade_pct==0
@@ -45,9 +47,13 @@ function start_game()
  _upd_fn, _draw_fn = update_game, draw_game
  
  mobs={}
- player=add_mob(1,3,7)
- player.sight=6
+ items={}
+ inv_i=0
+ inv={}
+ pc=add_mob(1,3,7)
+ pc.vis=6
  is_p_turn=true
+ inv={}
  
  --temporary convenience
  --for adding mobs via map
@@ -61,9 +67,11 @@ function start_game()
   end
  end
  
- p_dist_map=get_dist_map(mob_pos(player))
- p_fov=get_fov(player)
- fog=get_fov(player)
+ p_dist_map=get_dist_map(mob_pos(pc))
+ fov={}
+ fog={}
+ update_fov()
+ update_fog()
  
  toasts={}
  windows={}
@@ -77,15 +85,18 @@ end
 --updates
 
 function update_game()
- load_btn_bfr()
- hp_window.txt={"♥"..player.hp}
+ local p_hp=pc.hp
+ hp_window.txt={"♥"..p_hp}
+ hp_window.clr=p_hp<4 and 8 or 7  
  
- if btn_bfr and player.hp>0 then
+ if btn_bfr and p_hp>0 then
   handle_btn(btn_bfr)
-  btn_bfr = nil
+  btn_bfr=nil
+ else
+  read_input()
  end
- 
- if player.hp<=0 and player.flash<=0 then
+  
+ if p_hp<=0 and pc.flash<=0 then
   fade_to(1)
   windows={}
   _upd_fn=update_gameover
@@ -116,21 +127,31 @@ function update_anim()
  
  --did everybody finish animating?
  if done then
-  if is_p_turn then
-   is_p_turn=false
-   update_ai()
+  if is_p_turn then  
+   _upd_fn=update_game
   else
-   is_p_turn=true
-  _upd_fn=update_game
+   update_ai()
   end
  else
   _upd_fn=update_anim
  end
 end
 
+function update_fov()
+ local fpos,dist=mob_pos(pc),pc.vis
+
+ for tpos=1,256 do
+  if distance(fpos,tpos)<=dist then
+   fov[tpos]=los(tpos,fpos)
+  else
+   fov[tpos]=false
+  end
+ end
+end
+
 function update_fog()
  for i=1,256 do
-  fog[i]=fog[i] or p_fov[i]
+  fog[i]=fog[i] or fov[i]
  end
 end
 
@@ -155,12 +176,16 @@ flags appendix
 function draw_game()
  cls(1)
  map()
-
+ 
+ draw_items()
  draw_mobs()
- draw_toasts()
  draw_fog()
+ draw_toasts()
+ draw_inv()
  
  fade_to(0)
+ 
+ draw_dbgs()
 end
 
 function draw_gameover()
@@ -191,25 +216,41 @@ function draw_mobs()
  end
 end
 
+function draw_items()
+ local yo={-1,-2,-1,0}
+ for i in all(items) do
+  local x,y=i.x*8,i.y*8
+  spr(255,x,y)
+  draw_sprite(
+   i._spr,
+   x,
+   y+yo[flr(frame/15)%4+1],
+   nil --color
+  )
+ end
+end
+
 function draw_fog()
+ --alternate palette for fogged,
+ --uncovered tiles.
+ pal(3,5)
+ pal(9,4)
+ pal(10,9)
+ pal(13,5)
+ 
  for pos=1,256 do
   local x,y=pos_to_xy(pos)
-  if fog[pos] then 
-   --uncovered
-   if not p_fov[pos] then
-    --not currently in sight
-    pal(3,5)
-    pal(9,4)
-    pal(10,9)
-    pal(13,5)
-    spr(mget(x,y),x*8,y*8)
-    pal()
-   end
-  else
+  local uncovered = fog[pos]
+  if uncovered and not fov[pos] then 
+   --uncovered and not currently in sight
+   spr(mget(x,y),x*8,y*8)
+  elseif not uncovered then
    --covered
    spr(208,x*8,y*8)
   end
  end
+ 
+ pal()
 end
 
 --tools
@@ -328,10 +369,11 @@ function print_outlined(txt,x,y,clr,outline_clr)
  print(txt,x,y,clr)
 end
 
-function show_toast(_txt,_x,_y,_clr)
+function show_toast(_txt,_x,_y,_clr,center)
+ local xo=center and -(#_txt*2)+4 or 0
  add(toasts,{
   txt=_txt,
-  x=_x,
+  x=_x+xo,
   y=_y-5,
   yo=5,
   clr=_clr
@@ -340,11 +382,11 @@ end
 
 function draw_toasts()
  for t in all(toasts) do
-  t.yo-=t.yo/10
+  t.yo-=t.yo/15
   if t.yo<=1 then
    del(toasts,t)
   else
-   print_outlined(t.txt,t.x,t.y+t.yo,t.clr,0)
+   print_outlined(t.txt,t.x,t.y+t.yo,t.clr,1)
   end
  end
 end
@@ -370,19 +412,41 @@ function fade_to(pct)
   flip()
  end
 end
+
+function draw_inv()
+ local x,y,w,h=3,112,13,12
+ rectfill(x,y,x+w,y+h,1)
+ rect(x+1,y+1,x+w-1,y+h-1,7)
+ 
+ if (inv_i<1) then
+  print_outlined("empty",x-2,y+4,6,1)
+  return
+ end
+ local item=inv[inv_i]
+ 
+ spr(item._spr,x+3,y+2)
+ print_outlined(item.qty,x+11,y+8,7,1)
+end
 -->8
 --misc
 
 --is 'from' position adjacent
 --to 'to' position, where each
 --position is a 1d-pos.
+--also checks for out of bounds.
 function is_adj(fpos,tpos)
  local fx,fy=pos_to_xy(fpos)
  local tx,ty=pos_to_xy(tpos)
  local dx,dy=abs(fx-tx),abs(fy-ty)
- return abs(dx)<=1 --didn't go oob horizontally
-  and abs(dy)<=1 --didn't go oob vertically
-  and abs(dx+dy)<2 --didn't go diagonally
+ return 
+  --didn't go oob horizontally
+  abs(dx)<=1
+  --didn't go oob vertically
+  and abs(dy)<=1 
+  and tpos>=1 
+  and tpos<=256
+  --didn't go diagonally
+  and abs(dx+dy)<2
 end
 
 --[[
@@ -416,20 +480,23 @@ end
 --where the valus indicate the
 --walkable dist from original position
 function get_dist_map(o_pos)
- local q,dmap,dist={o_pos},{},0
- 
- while #q>0 do
-  for i=1,#q do
-   local pos=deli(q,1)
-   dmap[pos]=dist
-   for dnbor in all(dnbors) do
-    local nbor = pos+dnbor
-    if not dmap[nbor] 
-      and not blocked(pos,nbor,"move_thru_mobs") 
-      then
-     add(q,nbor)
-    end
-   end
+ local q,dmap,dist,i={o_pos},{},0,1
+
+ while i<=#q do
+  for _=i,#q do
+   local pos=q[i]
+   i+=1 
+   if not dmap[pos] then
+	   dmap[pos]=dist
+	   for dnbor in all(dnbors) do
+	    local nbor = pos+dnbor
+	    if not dmap[nbor]
+	      and not blocked(pos,nbor,"move_thru_mobs") 
+	      then
+	     add(q,nbor)
+	    end
+	   end
+	  end
   end
   dist+=1
  end
@@ -446,11 +513,6 @@ end
 --from pos (1 indexed)
 function pos_to_xy(pos)
  return (pos-1)%16, flr((pos-1)/16)
-end
-
---for debugging
-function logd(msg)
- show_timed_msg(msg,60,11)
 end
 
 --wait for a number of frames
@@ -488,17 +550,8 @@ function los(fpos,tpos,retest)
    end
   end
   
-  --e2 and err are somewhat
-  --mysterious. i'm not good
-  --enough at math to properly
-  --explain what it does. but
-  --if you increase the factor
-  --you multiply err by,
-  --the distance that corners are
-  --fixed increases too, seemingly
-  --linearly. thus i have chosen
-  --the theoretical furthest
-  --a corner could be from the player, 16
+  --multiply by more for more
+  --corner fix range
   local e2=err*16
   if e2>-dy then
    err-=dy
@@ -520,20 +573,6 @@ function distance(fpos,tpos)
  return sqrt(dx*dx+dy*dy)
 end
 
-function get_fov(mob)
- local fpos,dist=mob_pos(mob),mob.sight
- local fmap={}
-
- for tpos=1,256 do
-  if not fmap[tpos] 
-    and (distance(fpos,tpos)<=dist) 
-    then
-   fmap[tpos]=los(tpos,fpos)
-  end
- end
- 
- return fmap
-end
  
 
 
@@ -543,34 +582,64 @@ end
 function load_btn_bfr()
  if (not allow_input) return
  for i=0, 5 do
-  if btnp(i) then
-   btn_bfr = i
+  if btnp(i) then 
+   btn_bfr=i 
    return
   end
  end
 end
 
+function read_input()
+ --handle special inputs first
+ if btnl(❎) then
+  --expand items
+  if btnps(⬅️) then
+   --change item left
+  elseif btnps(➡️) then
+   --change item right
+  end
+ --try getting other buttons
+ elseif btnps(🅾️) then
+  handle_btn(🅾️)
+ elseif btnps(❎) then
+  handle_btn(❎)
+ elseif not btn(❎) and not btn(🅾️) then
+  for i=0,3 do
+  --make mvmt repeat by btnp
+   if btnp(i) then
+    handle_btn(i)
+    return
+   end
+  end
+ end
+end
+
 function handle_btn(_btn)
- if (not _btn) return
+ local did_act=false
  
  if msg_window then
   if _btn>3 then
    msg_window.dur = 0
    msg_window = nil
   end
+ elseif _btn==🅾️ then
+  did_act=use_item()
  elseif _btn<4 then  
-  if move_mob(
-     player,
-     dxs[_btn+1],
-     dys[_btn+1]
-    ) then
-   p_dist_map=get_dist_map(mob_pos(player))
-   p_fov=get_fov(player)
-   update_fog()
-  end
-  
-  _upd_fn=update_anim
+  did_act=move_mob(
+    pc,
+    dxs[_btn+1],
+    dys[_btn+1]
+  ) 
  end
+ 
+ if did_act then
+  p_dist_map=get_dist_map(mob_pos(pc))
+  update_fov()
+  is_p_turn=#mobs==1
+ end
+ 
+ _upd_fn=update_anim
+ update_fog()
 end
 
 -->8
@@ -600,10 +669,10 @@ function move_mob(m,dx,dy)
   --walkable
   m.x+=dx
 	 m.y+=dy
-	 m.xo,m.yo,m.anim_spd=-8*dx,-8*dy,2
+	 m.xo,m.yo,m.anim_spd=-8*dx,-8*dy,3
 	 did_act = true
 	 --player makes a walking sound.
-	 if (m==player) sfx(0)
+	 if (m==pc) sfx(0)
  end
  
  --don't animate mobs out of sight
@@ -619,19 +688,28 @@ function move_mob(m,dx,dy)
 end
 
 function handle_interact(mob,tile,x,y)
- local other=get_mob(x,y)
+ local other,item=get_mob(x,y),get_item(x,y)
 
  if other 
    and mob!=other
-   and (mob==player or other==player)
+   and (mob==pc or other==pc)
    then
   --handle combat
   hit_mob(mob,other)
-  sfx(9)
+  if mob==pc then
+   sfx(9)
+  elseif other==pc then
+   sfx(10)
+  end
   return true
  end
  
- if (mob!=player) return false
+ if (mob!=pc) return false
+ 
+ if item then
+  pickup(item)
+  return
+ end
   
  if tile==202 or tile==201 then
   --vases
@@ -644,10 +722,14 @@ function handle_interact(mob,tile,x,y)
  elseif tile==204 or tile==205 then
   --chests
   mset(x, y, tile+16)
+  add_item("rice",2,x,y)
   sfx(5)
  elseif tile==206 then
   --upstairs
   sfx(8)
+  fade_to(1)
+  wait(30)
+  start_game()
  elseif tile==222 then
   --signs
   if x==6 and y==5 then
@@ -689,7 +771,7 @@ mobs:
  2-slime
 --]] 
 
-mob_hps={99,1}
+mob_hps={10,2}
 mob_atks={1,1}
 mob_anims={{1,2,3,4},{5,6,5,7}}
 
@@ -721,13 +803,13 @@ end
 
 function hit_mob(atkr,defr)
  local toast_clr = 10
- if (defr==player) toast_clr=9
+ if (defr==pc) toast_clr=9
  
  defr.hp-=atkr.atk
  
  if defr.hp<=0 then
   defr.flash=12
-  if defr==player then
+  if defr==pc then
    sfx(11)
    defr.flash=64
   end
@@ -735,16 +817,27 @@ function hit_mob(atkr,defr)
   defr.flash=8
  end
  
- show_toast(
-  "-"..tostring(atkr.atk),
-  defr.x*8,
-  defr.y*8,
-  toast_clr --toast color
- )
+ mob_say(defr,"-"..tostring(atkr.atk),toast_clr)
+-- show_toast(
+--  "-"..tostring(atkr.atk),
+--  defr.x*8,
+--  defr.y*8,
+--  toast_clr --toast color
+-- )
 end
 
 function mob_pos(m)
  return xy_to_pos(m.x,m.y)
+end
+
+function mob_say(mob,msg,clr)
+ show_toast(
+  msg,
+  mob.x*8,
+  mob.y*8,
+  clr,
+  true --center
+ )
 end
 -->8
 --ai
@@ -768,6 +861,8 @@ function update_ai()
    end
   end
  end
+ 
+ is_p_turn=true
 end
 
 --returns a random move that
@@ -792,24 +887,176 @@ end
 --bring this mob closest to 
 --the player
 function ai_move_chase(m)
- local pos=mob_pos(m)
- local cur_dist=p_dist_map[pos]
+ local pos,p_pos=mob_pos(m),mob_pos(pc)
+ local cur_dist,min_dist,best=
+   p_dist_map[pos],99,nil
  
  --use the player's dist map
  --to get closer to player
  for dnbor in all(dnbors) do
   local tpos=pos+dnbor
   local nxt_dist=p_dist_map[tpos]
-  if nxt_dist 
-    and cur_dist 
+  if nxt_dist and cur_dist 
     and nxt_dist<cur_dist then
-   move_mob_pos(m,tpos)
-   return
+   local tdist=distance(tpos,p_pos)
+   if tdist<min_dist then
+    best=tpos
+    min_dist=tdist
+   end
   end
  end
  
- --fallback is to move randomly
- ai_move_rnd(m)
+ if best then
+  move_mob_pos(m,best)
+ else
+  --fallback is to move randomly
+  ai_move_rnd(m)
+ end
+end
+-->8
+--debug
+
+dbgs={}
+
+function draw_dbgs()
+ local i=1
+ for dbg in all(dbgs) do
+  dbg.dur-=1
+  print(dbg.txt,2,i*6-4,11)
+  if dbg.dur<=0 then
+   del(dbgs,dbg)
+  end
+  i+=1 
+ end
+end
+
+function logd(_txt)
+ local dbg={txt=_txt,dur=60}
+ add(dbgs,dbg)
+end
+
+function draw_dist_map()
+ for i=1,256 do
+  local x,y=pos_to_xy(i)
+  if p_dist_map[i] then
+    print(p_dist_map[i],x*8,y*8,11)
+  end
+ end
+end
+-->8
+--items
+
+function add_item(_name,_qty,_x,_y)
+ local item
+ if _name=="rice" then
+  item=add(items,{
+   name="rice",
+   _spr=237,
+   x=_x,
+   y=_y,
+   qty=_qty
+  })
+ end
+ 
+ mob_say(item,_name,7)
+end
+
+function get_item(x,y)
+ for i in all(items) do
+  if i.x==x and i.y==y then
+   return i
+  end
+ end
+end
+
+function pickup(item)
+ if #inv>=4 then
+  mob_say(pc,"full!",7)
+ else
+  for i=1,#inv+1 do
+   if i==#inv+1 then
+    add(inv,item)
+   else
+    local inv_item=inv[i]
+    if inv_item.name==item.name then
+     inv_item.qty+=item.qty
+     break
+    end
+   end
+  end
+
+  del(items,item)
+  sfx(12)
+  
+  if (inv_i<1) inv_i=1
+ end
+end
+
+function use_item()
+ if inv_i<1 then
+  sfx(6)
+  return false
+ end
+ 
+ local item=inv[inv_i]
+ 
+ item.qty-=1
+ 
+ if item.name=="rice" then
+  pc.hp+=1
+  mob_say(pc,"+1",11)
+  sfx(13)
+ end
+ 
+ if item.qty<=0 then
+  del(inv,item)
+  inv_i=min(inv_i,#inv)
+ end
+ 
+ return true
+end
+-->8
+--button tools
+
+--call from _init()
+function init_btns()
+ --long hold duration threshold
+ btnl_d=20
+ btn_t={} 
+  
+ for i=1,6 do 
+  btn_t[i]={p=0,d=0} 
+ end
+end
+
+--call from _update60()
+function upd_btns()
+  for i=0,5 do
+  local b=btn_t[i+1]
+  b.p=max(b.p-1,0)
+  if (b.p==0) b.d=0
+  if btn(i%6,i\6) then
+   b.p=2
+   b.d+=1
+  end
+ end
+end
+
+--released
+function btnr(i)
+ return btn_t[i+1].p==1
+end
+
+--short press
+function btnps(i)
+ local b=btn_t[i+1]
+ return b.p==1 and b.d<=btnl_d
+end
+
+--long hold
+function btnl(i)
+ local b=btn_t[i+1]
+ return b.p==2 and b.d>btnl_d
 end
 __gfx__
 11111111111111111117161111111111111716111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
@@ -924,14 +1171,14 @@ __gfx__
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111119191991911111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111113111113133333331133333319111111911111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111119999999911111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000011111111
+111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111000aa00000000000000aa00011111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100000000000aa00000a11a0011111111
+1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111110099aa00009aaa00000aa00011111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100991a0009999aa0009aaa0011111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111109aaaaa0099119a00099aa0011111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100099000099119900009900011111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000011111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
@@ -1077,17 +1324,17 @@ __map__
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c9cdcac1cadddcc9c1c1c1c9cccac100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c0c0cbc0c0c0c0c0c0cbc005c9c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c1c1c1c0c1c1c0c1c1c1c9c0cac100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c005c0cbc0c0c0c0c0c0cbc0c0c9c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c1c1c1c0c1c1c0c1c1c1c905cac100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c0c1c105c0dec0c0c0cec1cac0c0c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c0c1c1c0c0c0c0cdc1c1c1c1c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c0c1cfc0c0c0c0ccc1dec1c1c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c0c1c1c1c1dbc1c1c1c0c0c0c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c0c0c0c1c0c1c1c1c005c0c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c1c1c0c0c0c0c0c0c0c0c005c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c1c1c0c1c1cbc1c1c0c0c0c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c1c1c0c1cdc0c1c1c0c005c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c1c0c0c005c1c9cac1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c0c0c0c1c0c1c1c1c0c005c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c1c1c0c0c0c0c0c0c0c0c0c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c1c1c0c1c1cbc1c1c0c0c005c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c1c105c1cdc0c1c1c005c0c0c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+c1c0c0c0c0c1c9cac1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __sfx__
@@ -1103,3 +1350,7 @@ __sfx__
 000100001b620201201a1301312015100131001310011100111000910007100051000310001100001000510004100041000310003100031000310003100021000210000100001000010000100001000010000100
 0001000026460254202f4302a430244301e4302842039410014000140001400004000040000400004000040000400004000040000400004000040000400004000040000400004000040000400004000040000400
 000400002515025150001001f1501f150001001715017150001001215012150001000010005150041500415004150031500314002140021400113000130001200011000100001000010000100000000000000000
+000100001d7401f74022730287102f730007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700
+000500002b73028730247302873030730077000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700
+000300002261010610006000060000600006001d610096101e6100060000600006000e6000e6000e6000060000600006000060000600006000060000600006000060000600006000060000600006000060000600
+001000002335000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
