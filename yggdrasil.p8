@@ -5,21 +5,25 @@ __lua__
 --by helloworldramen
 
 function _init()
- frame,turn,
+ thor=0
+ gtime_start,gtime_end,
+ frame,turn,fturn,
  fade_pct,target_fade_pct,
  allow_input,load_floor,
- aim_dir,
+ aim_dir,inv_open,
  fade_clrs, --color transition table
  dxs,dys, --x and y deltas
  dnbors,shuf_dnbors, --neighbor deltas for 1d position
  wall_sigs,
  wall_msks,
+ --nils
  aim_item,btn_bfr
  =
   0,0,
+  0,0,0,
   1,0,
   true,false,
-  ➡️,
+  ➡️,false,
   split"0,1,1,2,1,13,6,4,4,9,3,13,1,13,14",
   split"-1,1,0,0,1,1,-1,-1",split"0,0,-1,1,-1,1,1,-1",
   split"-1,1,-17,17",split"-1,1,-17,17",
@@ -39,6 +43,11 @@ function _update60()
 end
 
 function _draw()
+ if thor>0 then
+  pal(3,rnd(split"1,2,4,5,6,7,9,10,11,12,13,14,15"))
+  thor-=1
+ end
+  
  camera(4,4)
  frame+=1
  fade_pct=approach(fade_pct,target_fade_pct,0.04)
@@ -55,16 +64,14 @@ function start_game()
  =
   update_new_floor,draw_game
  
- mobs,traps,inv,toasts,windows,
- inv_i,floor,turn
- =
-  {},{},{},{},{},
-  0,-1,0
+ mobs,traps,inv,toasts,ptcls,windows,
+ inv_i,floor,turn,maps,kills,hp_lost,death =
+  {},{},{},{},{},{},
+  0,-1,0,0,0,0,true
  pc=add_mob(1,0,0)
- pc.vis=6
- 
- hp_window=add_window(105,117,24,13,{},7)
- flr_window=add_window(70,117,35,13,{},7)
+
+ hp_window=add_window(100,117,28,13,{},7)
+ flr_window=add_window(65,117,35,13,{},7)
 end
 
 
@@ -73,8 +80,10 @@ end
 --updates
 
 function update_game()
+ if (#ptcls>0) return
+ 
  local p_hp=pc.hp
- hp_window.txt={"♥"..p_hp}
+ hp_window.txt={"♥"..p_hp.."/"..pc.mxhp}
  hp_window.clr=p_hp<4 and 8 or 7  
  
  flr_window.txt={"floor "..floor}
@@ -87,17 +96,22 @@ function update_game()
  end
   
  if p_hp<=0 and pc.flash<=0 then
-  fade_to(1,true)
-  _upd_fn=update_gameover
-  _draw_fn=draw_gameover
+  gameover()
   return
  end
  
  --handle any mob deaths.
  for m in all(mobs) do
-  if m.hp<=0 and m.flash<=0 then
-   del(mobs, m)
-   loot_mob(m)
+  if m.hp<=0 then
+   if m.flash<=0 then
+    if (m!=pc) kills+=1
+    death=death and m.typ!=11
+    del(mobs,m)
+   end
+   if not m.looted then
+    loot_mob(m)
+    m.looted=true
+   end
   end
  end 
 end
@@ -118,9 +132,22 @@ function update_anim()
  
  for m in all(mobs) do
   if m.xo!=0 or m.yo!=0 then
-   done=false
-   m.xo=approach(m.xo,0,m.anim_spd)
-   m.yo=approach(m.yo,0,m.anim_spd)
+   m.xo,m.yo,done=
+    approach(m.xo,0,m.anim_spd),
+    approach(m.yo,0,m.anim_spd),
+    false
+  end
+ end
+ 
+ for i in all(items) do
+  if i.xo!=0 or i.yo!=0 then
+   i.xo,i.yo,done=
+    approach(i.xo,0,3),
+    approach(i.yo,0,3),
+    false
+   if i.xo==0 and i.yo==0 and i.x==pc.x and i.y==pc.y then
+    pickup(i)
+   end
   end
  end
  
@@ -129,10 +156,8 @@ function update_anim()
   if load_floor then
    load_floor=false
    if floor==9 then --gameover
-    fade_to(1,true)
     sfx(18)
-    _upd_fn=update_gameover
-    _draw_fn=draw_gameover
+    gameover()
    else
     _upd_fn=update_new_floor
    end
@@ -150,7 +175,9 @@ function update_fov()
  local fpos,dist=mob_pos(pc),pc.vis
 
  for tpos=1,289 do
-  if distance(fpos,tpos)<=dist then
+  if maps>2 then
+   fov[tpos]=true
+  elseif distance(fpos,tpos)<=dist then
    fov[tpos]=los(tpos,fpos)
   else
    fov[tpos]=false
@@ -172,6 +199,14 @@ function update_gameover()
   start_game() 
  end
 end
+
+function gameover()
+ gtime_end=t()
+ fade_to(1,true)
+ windows={}
+ _upd_fn=update_gameover
+ _draw_fn=draw_gameover
+end
 -->8
 --drawing
 
@@ -188,6 +223,7 @@ function draw_game()
  draw_traps()
  draw_items()
  draw_mobs()
+ draw_fxs()
  if floor>0 then
   draw_fog()
  end
@@ -198,19 +234,39 @@ function draw_game()
 end
 
 function draw_gameover()
- local msg=pc.hp>0 
-  and "you win!! (🅾️ to restart)" 
-  or "you died! (🅾️ to restart)"
- cls(1)
- print(msg,15,50,7)
+ local td=gtime_end-gtime_start
+ local tm,ts=flr(td/60),flr(td%60)
+ local timemsg="time: "..tm..":"..(ts<10 and "0"..ts or ts)
+ local title=pc.hp>0 
+  and "~victorious~"
+  or  "..defeated.."
+ local xo,yo=41,30
+ local xo2,yo2=xo+4,yo+16
+ 
+ cls(0)
+ print(title,xo,yo,7)
+ print(" floor: "..floor,xo2,yo2,6)
+ print(" turns: "..turn,xo2,yo2+8,6)
+ print(" kills: "..kills,xo2,yo2+16,6)
+ print("♥lost: "..hp_lost,xo2,yo2+24,6) 
+ print(timemsg,xo2,yo2+40,6)
+ 
+ if pc.hp>0 then
+  local souls=0
+  foreach(inv,function(i)
+   if (i.name=="soul") souls+=1
+  end)
+  print("souls returned: "..souls,xo2-12,yo2+48,6) 
+ end
+ print("🅾️ to continue",xo-4,yo2+90,7)
 end
 
 function draw_mobs()
  for m in all(mobs) do
-  local alive,flashing=m.hp>0,m.flash>0
-  local clr = flashing and 7 or nil
+  local alive,flashing,soul=m.hp>0,m.flash>0,m.soul
+  local clr=flashing and 7 or nil
   m.flash-=min(1,m.flash)
-  
+  clr=(soul and sin(frame/24)>0.8) and 13 or clr
   if alive or flashing and sin(time()*8)>0 then
    draw_sprite(
     get_anim_sprite(m.anim),
@@ -234,14 +290,14 @@ function draw_traps()
 end
 
 function draw_items()
- local yo={-1,-2,-1,0}
+ local yo2={-1,-2,-1,0}
  for i in all(items) do
-  local x,y=i.x*8,i.y*8
-  spr(255,x,y)
+  local x1,y1=i.x*8+i.xo,i.y*8+i.yo,i
+  spr(255,x1,y1)
   draw_sprite(
    i._spr,
-   x,
-   y+yo[flr(frame/15)%4+1],
+   x1,
+   y1+yo2[flr(frame/15)%4+1],
    nil --color
   )
  end
@@ -350,21 +406,14 @@ end
 
 --show a temporary message, with duration in frames.
 --the message can only be one string.
-function show_timed_msg(msg, duration, clr)
+function show_timed_msg(msg, _dur, c)
  --calculate the required width, with some extra h-padding
- local w = (#msg+2)*4 + 7
- local window = add_window(
-  63-w/2, --x
-  56, --y
-  w, --width
-  13, --height
-  {" "..msg}, --text
-  clr --color
+ local w=(#msg+2)*4+7
+ local window=add_window(
+  63-w/2,56,w,13,{" "..msg},c
  )
  
- --we add a duration to the window
- --which we track every time windows are drawn
- window.dur = duration
+ window.dur=_dur
 end
 
 --[[
@@ -391,28 +440,28 @@ function print_outlined(txt,x,y,clr,outline_clr)
  print(txt,x,y,clr)
 end
 
-function show_toast(_txt,_x,_y,_clr,center)
- local xo=center and -(#_txt*2)+4 or 0
+function show_toast(_txt,_x,_y,_clr,dur)
  add(toasts,{
   txt=_txt,
-  x=max(_x+xo,4),
+  x=_x,
   y=_y-5,
   yo=5,
-  clr=_clr
+  clr=_clr,
+  dur=dur or 10
  })
 end
 
 function draw_toasts()
  for t in all(toasts) do
   local m=t.mob
-  t.yo-=t.yo/15
+  t.yo-=t.yo/20
   if t.yo<=1 then
    del(toasts,t)
   elseif m then
    local x=(m.x*8)-(#t.txt*2)+4
    print_outlined(t.txt,x,m.y*8-5+t.yo,t.clr,1)
   else
-   print_outlined(t.txt,t.x,t.y+t.yo,t.clr,1)
+   print_outlined(t.txt,t.x-(#t.txt*2)+4,t.y+t.yo,t.clr,1)
   end
  end
 end
@@ -448,7 +497,7 @@ function draw_inv()
   rect(xo+1,y+1,xo+w-1,y+h-1,7)
  end
  
- local selecting=btn(❎) and not aim_item
+ local selecting=inv_scroll()
  
  for i=1,#inv do
   local item,xo=inv[i],(i-1)*12+x
@@ -465,8 +514,8 @@ function draw_inv()
    if (item_window) item_window.dur=0
   elseif inv_i==i and selecting then
    --for the selected item
-   spr(254,xo+9,y+3)
-   spr(254,xo-3,y+3,1,1,true)
+   spr(244,xo-5,y+3)
+   spr(245,xo+11,y+3)
    del(windows,item_window)
    item_window=add_window(x,y-14,64,13,{item.tip},7)  
   end
@@ -476,9 +525,24 @@ end
 
 function draw_aim()
  if aim_item then
-  local aim_pos=mob_pos(pc)+dnbors[aim_dir+1]
+  local aim_pos=mob_pos(pc)+dnbors[aim_dir]
   local ax,ay=posxy(aim_pos)
-  spr(244+aim_dir,ax*8,ay*8)
+  local dx,dy=dxs[aim_dir],dys[aim_dir]
+  spr(243+aim_dir,ax*8+dx*sin(frame/15),ay*8+dy*sin(frame/15))
+ end
+end
+
+function add_particle(_spr,x,y,tx,ty,spd)
+ add(ptcls,{
+  _spr=_spr,x=x,y=y,tx=tx,ty=ty,spd=spd
+ })
+end
+
+fxs={}
+function draw_fxs()
+ for fx in all(fxs) do
+  spr(deli(fx.anim,1),fx.x,fx.y)
+  if (#fx.anim<1) del(fxs,fx)
  end
 end
 -->8
@@ -501,33 +565,30 @@ mode can be one of:
  "idle"
  "breed"
 ]]--
-function blocked(fpos,tpos,mode,m)
+function blocked(tpos,mode,fly,door)
  local x,y=posxy(tpos)
  local tile,mob,trap=
   mget(x,y),
   get_mob(x,y),
   get_trap(x,y)
  local nonpc_mob=mob and mob!=pc
- local unwalkable=fget(tile,0)
- if m and m.fly then
+ local unwalkable=fget(tile,0) and not(door and tile==203)
+ if fly then
   unwalkable=unwalkable and fget(tile,2)
  end
- 
+
  if (unwalkable) return true
- 
+  
  if mode=="move" then
   return mob
- elseif mode=="fly_dmap" then
-  return fget(tile,2)
  elseif mode=="idle" then
-  return trap or nonpc_mob
+  return (not fly and trap) or nonpc_mob
  elseif mode=="chase" then
   return nonpc_mob
  elseif mode=="breed" then
   return trap or mob
- end
+ end --default nil/false
 end
-
 
 --shuffle a table via fisher-yates.
 function shuf(t)
@@ -541,9 +602,8 @@ end
 --return table indexed by 1d-pos
 --where the valus indicate the
 --walkable dist from original position
-function get_dist_map(o_pos,mode)
+function get_dist_map(o_pos,mode,fly,door)
  local q,dmap,dist,i={o_pos},{},0,1
- mode=mode or "move_thru_mobs"
 
  while i<=#q do
   for _=i,#q do
@@ -554,7 +614,7 @@ function get_dist_map(o_pos,mode)
 	   for dnbor in all(dnbors) do
 	    local nbor=pos+dnbor
 	    if not dmap[nbor]
-	      and not blocked(pos,nbor,mode) 
+	      and not blocked(nbor,mode,fly,door) 
 	      then
 	     add(q,nbor)
 	    end
@@ -576,6 +636,10 @@ end
 --from pos (1 indexed)
 function posxy(pos)
  return (pos-1)%17, flr((pos-1)/17)
+end
+
+function mgetpos(pos)
+ return mget(posxy(pos))
 end
 
 --retest should be false on
@@ -682,13 +746,12 @@ function load_btn_bfr()
  end
 end
 
-inv_open=false
 function read_input()
  if (not allow_input) return
  --handle special inputs first
  if (btnr(❎)) inv_open=false
 
- if btn(❎) and inv_i>0 and not aim_item then
+ if inv_scroll() and inv_i>0 then
   if not inv_open then
    inv_open=true
    sfx(14)
@@ -714,7 +777,7 @@ function read_input()
   for i=0,3 do
   --make mvmt repeat by btnp
    if btnp(i) then
-    aim_dir=i
+    aim_dir=i+1
     handle_btn(i)
     return
    end
@@ -735,7 +798,7 @@ function handle_btn(_btn)
   elseif _btn==🅾️ then
    did_act=use_aim_item()
   else
-   aim_dir=_btn
+   aim_dir=_btn+1
    sfx(15)
   end
  elseif _btn==🅾️ then
@@ -750,6 +813,7 @@ function handle_btn(_btn)
  
  if did_act then
   turn+=1
+  fturn+=1
   is_p_turn=#mobs==1
  end
  
@@ -759,6 +823,9 @@ function handle_btn(_btn)
  update_fog()
 end
 
+function inv_scroll()
+ return not aim_item and (btn(❎) or btnl(🅾️))
+end
 -->8
 --movement
 
@@ -784,7 +851,7 @@ function move_mob(m,dx,dy,skip_anim)
  if (dx<0) m.flipped = true
  if (dx>0) m.flipped = false
  
- if blocked(fpos,tpos,"move",m) then
+ if blocked(tpos,"move",m.fly) then
   --not walkable
   m.xo,m.yo,m.anim_spd=4*dx,4*dy,1
  else
@@ -812,17 +879,18 @@ end
 
 function handle_interact(mob,tile,x,y)
  local other,item=get_mob(x,y),get_item(x,y)
-
+ local pcatkr,pcdefr=mob==pc,other==pc
  if other 
    and mob!=other
-   and (mob==pc or other==pc)
+   and (mob==pc or pcdefr)
    then
   --handle combat
-  hit_mob(mob,other)
-  if mob==pc then
-   sfx(9)
-  elseif other==pc then
-   sfx(10)
+  if not hit_mob(mob,other) then
+   sfx"24"
+  elseif pcatkr then
+   sfx"9"
+  elseif pcdefr then
+   sfx"10"
   end
   return true
  end
@@ -830,9 +898,14 @@ function handle_interact(mob,tile,x,y)
  if tile==200 and not mob.fly then --trap
   trigger_trap(x,y)
   sfx(17)
+ elseif tile==203 and mob.door then
+  --doors
+  mset(x,y,219)
+  sfx(1)
+  return true
  end
  
- if (mob!=pc) return false
+ if (not pcatkr) return false
  
  if item then
   pickup(item)
@@ -843,28 +916,24 @@ function handle_interact(mob,tile,x,y)
   --vases
   mset(x,y,tile+16)
   loot_pot(x,y)
-  sfx(4)
- elseif tile==203 then
-  --doors
-  mset(x,y,219)
-  sfx(1)
+  sfx"4"
  elseif tile==204 then 
   --l chest
   mset(x,y,220)
   loot_box_l(x,y)
-  sfx(5)
+  sfx"5"
  elseif tile==205 then
   --s chest
   mset(x, y, 221)
   loot_box_s(x,y)
-  sfx(5)
+  sfx"5"
  elseif tile==206 then
   --upstairs
-  sfx(8)
+  sfx"8"
   load_floor=true
  elseif tile==222 then
   --signs
-  sfx(7)
+  sfx"7"
   return false
  else
   return false
@@ -891,36 +960,56 @@ mobs:
  7-hound
  8-trex
  9-giant
+ 10-knight
+ 11-death
 --]] 
 
-mob_hps=split"5,1,1,2,1,1,1,2,3"
-mob_atks=split"1,1,2,1,1,1,1,2,3"
-mob_vis=split"6,4,5,0,4,4,7,2.5,5"
+mob_hps=split"5,1,1,2,1,1,1,2,3,2,10"
+mob_atks=split"1,1,2,1,1,1,1,2,3,1,99"
+mob_vis=split"6,4,5,0,4,4,7,2.5,5,5,0"
+mob_loot_pct=split"0,7,7,7,15,5,7,70,30,30,100"
+mob_loot=split2d[[
+0|
+1,2,3,4,6,8,9,10|
+1,2,3,4,6,8,9,10|
+1,2,3,4,6,7,8,9,10|
+1,2,3,3,4,4,9,10|
+1|
+2|
+5,6,7,8|
+1,4,6,6,7,7,8,8,9|
+1,6,7,8,9|
+11|
+]]
 mob_anims=split2d[[
 1,2,3,4|
 5,6,5,7|
 8,9,10,11|
 19,20,21,20|
 16,17,18,17|
-12,13,14,15|
+35,36,35,37|
 22,23,24,23|
 25,26,27,28|
-32,32,33,33,32,32,34,34
+32,32,33,33,32,32,34,34|
+12,13,14,15|
+29,29,30,30,29,29,31,31|
 ]]
-mob_flys=splitdict"5:bat"
+mob_fly=splitdict"5:bat,11:death"
+mob_door=splitdict"1:player,3:skeleton,9:giant,10:knight,11:death"
 mob_spawns=split2d[[
 2,2,5|
 2,2,3,5|
-2,3,4,5|
-2,3,4,6|
-3,4,6,7,9|
-3,4,6,7,7,9|
-3,6,7,7,8,9|
-3,6,7,7,8,9|
-6,7,8,9,9
+2,3,4,5,6|
+3,3,4,5,6,10|
+3,4,6,7,9,10|
+3,6,7,9,10|
+3,3,6,6,7,7,8,9,9,10,10|
+3,6,7,8,9,10|
+7,8,9,9,10,10
 ]]
 
 function spawn_mobs(rmap,down_pos)
+ if (floor==0) return
  local pmap={}
  for p=1,255 do 
   if rmap[p] and distance(p,down_pos)>3 then
@@ -933,14 +1022,36 @@ function spawn_mobs(rmap,down_pos)
   	local x,y=posxy(deli(pmap,#pmap))
   	local flag=fget(mget(x,y))
   	if flag==0 or flag==4 then
-   	add_mob(rnd(mob_spawns[floor]),x,y)
-   	break
+   	local mob=rnd(mob_spawns[floor])
+   	if mob!=4 or crabsafe then
+   	 add_mob(mob,x,y)
+   	 break
+   	end
   	end
   end
  end
+ if floor%2==0 then
+  mobs[flr(rnd(#mobs-1))+2].soul=true
+ end
 end
 
-function add_mob(_typ,_x,_y,_wait)
+function crabsafe(x,y)
+ local safe=true
+ function brk(_x,_y)
+  local t=mget(_x,_y)
+  safe=safe and t!=200
+  return fget(t,0)
+ end
+ for x2=x,0,-1 do
+  if (brk(x2,y)) break
+ end
+ for x3=x,16 do
+  if (brk(x3,y)) break
+ end
+ return safe
+end
+
+function add_mob(_typ,_x,_y)
  local m={
   typ=_typ,
   x=_x,
@@ -948,9 +1059,12 @@ function add_mob(_typ,_x,_y,_wait)
   xo=0, --x offset, used for animation
   yo=0, --y offset, used for animation
   hp=mob_hps[_typ],
+  mxhp=mob_hps[_typ],
   atk=mob_atks[_typ],
   vis=mob_vis[_typ],
-  fly=mob_flys[_typ],
+  eva=_typ==1 and 0.1 or 0,
+  fly=mob_fly[_typ],
+  door=mob_door[_typ],
   anim=mob_anims[_typ],
   anim_spd=0,
   flash=0,
@@ -958,7 +1072,7 @@ function add_mob(_typ,_x,_y,_wait)
   task="idle",
   task_pos=nil,
   task_map={},
-  wait=_wait
+  stun=0
  }
  
  return add(mobs,m)
@@ -973,15 +1087,27 @@ function get_mob(x,y)
 end
 
 function hit_mob(atkr,defr,atk)
- local toast_clr = 10
- if (defr==pc) toast_clr=9
+ if (not defr) return false
  
- defr.hp-=atk or atkr.atk
+ local toast_clr,dmg=
+  defr==pc and 9 or 10,atk or atkr.atk
+ foreach(inv,function(i)
+  if (i.name=="grim") dmg=99
+ end) 
+ 
+ --miss!
+ if rnd()<defr.eva then
+  mob_say(defr,"miss",toast_clr)
+  return false
+ end
+ 
+ defr.hp-=dmg
+ if (defr==pc) hp_lost+=dmg
  
  if defr.hp<=0 then
   defr.flash=12
   if defr==pc then
-   sfx(11)
+   sfx"11"
    defr.flash=64
   end
  else
@@ -989,25 +1115,31 @@ function hit_mob(atkr,defr,atk)
  end
  
  if fov[mob_pos(defr)] then
-  mob_say(defr,"-"..tostring(atk or atkr.atk),toast_clr)
+  mob_say(defr,"-"..dmg,toast_clr)
  end
+ 
+ return true
 end
 
 function mob_pos(m)
  return xypos(m.x,m.y)
 end
 
-function mob_say(_mob,_txt,_clr)
+function mob_say(m,_txt,c)
+ local mpos=mob_pos(m)
  add(toasts,{
   txt=_txt,
+  x=m.x*8,
+  y=m.y*8,
   yo=5,
-  clr=_clr,
-  mob=_mob
+  clr=c,
+  mob=fov[mpos] and m or nil
  })
 end
 
 --can m los the player
 function mob_los_p(m)
+ if (m.typ==11) return true
  local mpos,ppos=mob_pos(m),mob_pos(pc)
  return distance(mpos,ppos)<=m.vis 
   and (
@@ -1030,23 +1162,46 @@ bat_dnbors=split2d([[
 -18,18,-16,16|
 18,-18,16,-16
 ]])
+omni_dnbors=split"-18,-17,-16,-1,1,16,17,18"
 
-baby_mobs={}
+baby_mobs,
+task_map,
+task_map_fly,
+task_map_door={}
+
+function refresh_task_maps()
+ local ppos=mob_pos(pc)
+ task_map=get_dist_map(ppos)
+ task_map_fly=get_dist_map(ppos,nil,true)
+ task_map_door=get_dist_map(ppos,nil,false,true)
+end
+
+function get_task_map(m)
+ if m.fly and m.door then
+  return get_dist_map(mob_pos(pc),nil,true,true)
+ elseif m.fly then
+  return task_map_fly
+ elseif m.door then
+  return task_map_door
+ else
+  return task_map
+ end
+end
 
 function update_ai()
  load_btn_bfr()
  local ppos=mob_pos(pc)
- local p_dmap_copy,p_dmap_copy_fly=
-  get_dist_map(ppos),
-  get_dist_map(ppos,"fly_dmap")
- 
+ refresh_task_maps()
  for m in all(mobs) do
   local mpos=mob_pos(m)
-  local task_map=m.fly
-   and p_dmap_copy
-   or p_dmap_copy_fly
+  local task_map=get_task_map(m)
   
-  if m.hp<=0 or m==pc then
+  if m.stun>0 then
+   m.stun-=1
+   mob_say(m,"?!",10)
+  elseif m.typ==11 and fturn==109 then
+   --death waits a turn
+  elseif m.hp<=0 or m==pc then
    --dead mobs can't act
    --pc doesn't have an ai
   elseif m.task=="idle" then
@@ -1054,7 +1209,7 @@ function update_ai()
     m.task="chase"
     m.task_pos=ppos
     m.task_map=task_map
-    mob_say(m,"!",10)
+    mob_say(m,"!",m.typ==11 and 8 or 10)
     ai_chase(m)
    else
     ai_idle(m)
@@ -1070,10 +1225,6 @@ function update_ai()
     mob_say(m,"?",10)
     m.task="idle"
     ai_idle(m)
-   elseif not m.task_map[mpos] then
-    --can't reach, give up quietly
-    m.task="idle"
-    ai_idle(m)
    else
     --keep chasing (guess)
     ai_chase(m)
@@ -1086,6 +1237,18 @@ function update_ai()
   mob_say(baby,"웃",14)
  end
  baby_mobs={}
+ 
+ if death and fturn==108 then
+  for pos=1,255 do
+   if mgetpos(pos)==207 then
+    local x,y=posxy(pos)
+    add_mob(11,x,y)
+    show_timed_msg("death approaches",60,7)
+    sfx"27"
+    break
+   end
+  end
+ end
 
  is_p_turn=true
 end
@@ -1117,7 +1280,7 @@ function ai_chase(m)
   end
  elseif m.typ==5 then
   --bat
-  if rnd()<0.5 then
+  if rnd()<0.6 then
    ai_idle(m)
   else
    ai_chase_normal(m,rnd(bat_dnbors))
@@ -1131,6 +1294,11 @@ function ai_chase(m)
   --giant
    if turn%2==0 then
     ai_chase_normal(m)
+   end
+ elseif m.typ==11 then
+  --death
+   if rnd()<0.35 then
+    ai_chase_normal(m,omni_dnbors)
    end
  else
   ai_chase_normal(m)
@@ -1146,7 +1314,7 @@ function ai_idle_normal(m,m_dnbors)
  for dnbor in all(m_dnbors) do
   local tpos=pos+dnbor --'to' pos
   local tx,ty=posxy(tpos)
-  if not blocked(pos,tpos,"idle",m) then
+  if not blocked(tpos,"idle",m.fly) then
    move_mob_pos(m,tpos)
    return
   end
@@ -1158,7 +1326,7 @@ end
 function ai_idle_crab(m)
  local crableft=m.crableft
  local pos,dir=mob_pos(m),crableft and -1 or 1
- if blocked(pos,pos+dir,"idle") then
+ if blocked(pos+dir,"chase") then
   m.crableft=not crableft
   move_mob(m,-dir,0)
  else
@@ -1175,7 +1343,7 @@ function ai_chase_normal(m,m_dnbors)
  end
  local pos,p_pos=mob_pos(m),m.task_pos
  local cur_dist,min_dist,best=
-   m.task_map[pos],99,nil
+   m.task_map[pos],99
  
  --use the player's dist map
  --to get closer to player
@@ -1184,7 +1352,7 @@ function ai_chase_normal(m,m_dnbors)
   local nxt_dist=m.task_map[tpos]
   if nxt_dist and cur_dist 
     and nxt_dist<cur_dist 
-    and not blocked(pos,tpos,"chase",m)
+    and not blocked(tpos,"chase",m.fly,m.door)
     then
    local tdist=distance(tpos,p_pos)
    if tdist<min_dist then
@@ -1194,11 +1362,7 @@ function ai_chase_normal(m,m_dnbors)
   end
  end
  
- if best then
-  move_mob_pos(m,best)
- else
-  ai_idle(m)
- end
+ return best and move_mob_pos(m,best) or ai_idle(m)
 end
 
 function ai_breed(m,pct)
@@ -1206,7 +1370,7 @@ function ai_breed(m,pct)
   local bpos=get_breed_pos(m)
   if bpos then
    local bx,by=posxy(bpos)
-   for other in all(baby_mobs) do
+   for otherbaby in all(baby_mobs) do
     if otherbaby.x==bx and otherbaby.y==by then
      return false
     end
@@ -1225,7 +1389,7 @@ end
 function get_breed_pos(m)
  local mpos=mob_pos(m)
  for dnbor in all(rnd(dflt_dnbors)) do
-  if not blocked(mpos,mpos+dnbor,"breed",m) then
+  if not blocked(mpos+dnbor,"breed") then
    return mpos+dnbor
   end
  end
@@ -1248,23 +1412,39 @@ function logd(i,txt,tag)
 end
 
 function draw_dist_map()
+ local dist_map=get_dist_map(mob_pos(pc),"dmap",false,true)
  for i=1,289 do
   local x,y=posxy(i)
-  if p_dist_map[i] then
-    print(p_dist_map[i],x*8,y*8,11)
+  if dist_map[i] then
+    print(dist_map[i],x*8,y*8,11)
   end
  end
 end
 -->8
 --items
-
+--[[
+1: rice
+2: bell
+3: warp
+4: map
+5: thor
+6: bash
+7: trap
+8: gun
+9: jump
+10: pot
+11: grim scythe
+12: hook
+13: soul
+]]--
 item_names,
 item_sprs,
 item_tips
 =
- split"rice,bell,warp,map,volt,smash",
- split"237,236,238,239,235,234",
- split"recovers ♥,makes noise,teleports you,reveals things,zaps enemies,breaks stuff"
+ split"rice,bell,warp,map,thor,bash,trap,gun,jump,pot,grim,hook,soul",
+ split"237,236,238,239,235,234,233,253,252,251,250,249,254",
+ split"recovers ♥,makes noise,teleports you,reveals things,brings wrath,breaks things,lays spikes,piercing shot,hop obstacles,places a pot,accursed tool,grabs things,..."
+
 poi=splitdict"201:t,202:t,203:t,204:t,205:t,206:t"
 
 function add_item(_id,_qty,_x,_y)
@@ -1276,11 +1456,14 @@ function add_item(_id,_qty,_x,_y)
   _spr=item_sprs[_id],
   x=_x,
   y=_y,
+  xo=0,
+  yo=0,
   qty=_qty,
   tip=item_tips[_id]
  })
  
- show_toast(item.name.."(".._qty..")",_x*8,_y*8,7,true)
+ show_toast(item.name.."(".._qty..")",_x*8,_y*8,7)
+ sfx"3"
 end
 
 function get_item(x,y)
@@ -1332,71 +1515,93 @@ function pickup(item)
 end
 
 function use_item()
- if inv_i<1 then
-  return false
- end
+ if (inv_i<1) return false
+
  
  local item,did_act=inv[inv_i],true
  local name=item.name
  
+ if (name=="grim") then
+  sfx"6"
+  return false
+ end
+ 
  item.qty-=1
  
  if name=="rice" then
-  pc.hp+=1
-  mob_say(pc,"+1",11)
-  sfx(13)
+  local heal=pc.hp<pc.mxhp and 1 or 0
+  pc.hp+=heal
+  mob_say(pc,"+"..heal,11)
+  sfx(13,-1,0,5)
  elseif name=="bell" then
   mob_say(pc,"♪",7)
   sfx(16)
   local ppos=mob_pos(pc)
-  local task_map=get_dist_map(ppos)
   for m in all(mobs) do
    if m!=pc and m.vis>0 and distance(mob_pos(m),ppos)<10 then
     mob_say(m,"!",10)
     m.task="chase"
-    m.task_map=task_map
+    m.task_map=get_task_map(m)
     m.task_pos=ppos
    end
   end 
  elseif name=="warp" then
   local tmap={}
   for p=1,255 do add(tmap,p) end
-  local pmap,pcpos,tpos={},mob_pos(pc)
+  local pmap,pcpos,tpos,tpos2={},mob_pos(pc)
+  
   for p in all(shuf(tmap)) do
-   if not blocked(pcpos,p,"move") 
+   if not blocked(p,"move") 
      and distance(pcpos,p)>5 then
-    tpos=p
-    break
+    tpos2=p
+    --prefer somewhere new
+    if not fog[p] then
+     tpos=p
+     break
+    end
    end
   end
-  if tpos then
-   move_mob_pos(pc,tpos,true)
-   did_act=false
-   sfx(19)
+  local wpos=tpos or tpos2
+  if wpos then
+   move_mob_pos(pc,wpos,true)
+   aoestun(wpos)
+   sfx"19"
   else 
-   sfx(6)
+   sfx"6"
    return false
   end
  elseif name=="map" then
   for pos=1,255 do
    local x,y=posxy(pos)
-   if poi[mget(x,y)] then
+   if poi[mget(x,y)] or maps>0 then
     fog[pos]=true
    end
   end
-  sfx(20)
- elseif name=="volt" then
+  maps=min(maps+1,3)
+  sfx(20,-1,0,split"10,13,31"[maps])
+ elseif name=="thor" then
+  thor=10
   for m in all(mobs) do
-   if m!=pc and fov[mob_pos(m)] then
+   if fov[mob_pos(m)] then
     hit_mob(pc,m)
    end
   end
-  sfx(21)
- elseif name=="smash" then
-  aim_item=item
-  did_act=false
+  sfx"21"
+ elseif name=="soul" then
+  pc.hp+=1
+  pc.mxhp+=1
+  mob_say(pc,"+1max",11)
+  sfx"13"
+ elseif name=="bash" 
+   or name=="trap"
+   or name=="gun" 
+   or name=="jump"
+   or name=="pot"
+   or name=="hook"
+   then
+  aim_item,did_act=item,false
   item.qty+=1 --reverse
-  sfx(14)
+  sfx"14"
  end
  
  if item.qty<=0 then
@@ -1408,25 +1613,105 @@ function use_item()
 end
 
 function use_aim_item()
- local name,tpos,success=
-  aim_item.name,
-  mob_pos(pc)+dnbors[aim_dir+1],
-  true
+ local name,ppos,tpos,success,did_act=
+  aim_item.name,mob_pos(pc),
+  mob_pos(pc)+dnbors[aim_dir],
+  false,true
  local tx,ty=posxy(tpos)
  
- if name=="smash" then
-  if border(tpos) then
-   success=false
-  else
+ if name=="bash" then
+  if not border(tpos) then
    local mob=get_mob(tx,ty)
-   sfx(22)
+   sfx"22"
    if mob then
     hit_mob(pc,mob,2)
    else
+    del(items,get_item(tx,ty))
     mset(tx,ty,192)
+    trigger_trap(tx,ty)
     prettywalls()
    end
+   success=true
   end
+ elseif name=="trap" then
+  if not blocked(tpos,"move") then
+   trigger_trap(tx,ty)
+   add_trap(tx,ty)
+   sfx(17,-1,0,1)
+   success=true
+  end
+ elseif name=="gun" then
+  local gpos=tpos
+  while true do
+   local tile=mgetpos(gpos)
+   local gx,gy=posxy(gpos)
+   local mob=get_mob(gx,gy)
+   if (mob) hit_mob(pc,mob,1)
+   if fget(tile,0) and fget(tile,2) then
+    break
+   elseif fov[gpos] then
+    local _anim=aim_dir>2 
+     and split"212,212,213,214,214,214,214,215,215"
+     or split"196,196,197,198,198,198,198,199,199"
+    add(fxs,{anim=_anim,x=gx*8,y=gy*8})
+   end
+   gpos+=dnbors[aim_dir]
+  end
+  sfx"23"
+  success=true
+ elseif name=="jump" then
+  local delta=dnbors[aim_dir]
+  local jpos1,jpos2=ppos+delta,ppos+delta*2
+  if not border(jpos1) 
+    and not blocked(jpos2,"move") 
+    then
+   move_mob_pos(pc,jpos2)
+   aoestun(jpos2)
+   success=true
+   sfx"26"
+  end 
+ elseif name=="pot" then
+  if not blocked(tpos,"move") then
+   trigger_trap(tx,ty)
+   mset(tx,ty,201)
+   del(items,get_item(tx,ty))
+   success=true
+  end
+ elseif name=="hook" then
+  --find the first thing in the direction.
+  local hpos=tpos
+  while true do
+   local tile=mgetpos(hpos)
+   local hx,hy=posxy(hpos)
+   local item,mob=get_item(hx,hy),get_mob(hx,hy)
+
+   if mob and mob.typ!=9 then
+    --if mob, then yank it over
+    --unless giant
+    move_mob_pos(mob,tpos,false)
+    mob.stun+=1
+    break
+   elseif item then
+    local px,py=posxy(ppos)
+    local pitem=get_item(px,py)
+    local tx2,ty2=pitem and tx or px,pitem and ty or py
+    item.xo,item.yo,
+    item.x,item.y
+    =
+    (item.x-tx2)*8,(item.y-ty2)*8,
+    tx2,ty2
+    break
+   elseif fget(tile,0) or (mob and mob.typ==9) then
+    --if obstacle, get yanked to it
+    if (mob) mob.stun+=1
+    move_mob_pos(pc,hpos-dnbors[aim_dir],false)
+    break
+   end
+   --keep checking
+   hpos+=dnbors[aim_dir]
+  end
+  sfx(25,-1,0,min(16,flr(distance(ppos,hpos)))*2)
+  success=true
  end
  
  if success then
@@ -1437,32 +1722,43 @@ function use_aim_item()
   end
   aim_item=nil
  else
-  sfx(6)
+  sfx"6"
  end
  
- return success
+ return success and did_act
+end
+
+function aoestun(opos)
+ foreach(omni_dnbors,function(d)
+  local m=get_mob(posxy(opos+d))
+  if (m) m.stun+=1
+ end)
 end
 
 function loot_pot(x,y)
  if rnd()<0.07 then
-  add_item(rnd{1,2,3,4},1,x,y)
+  add_item(rnd(split"1,2,3,4,5,6,7,8,9"),1,x,y)
  elseif rnd()<0.05 then
-  add_mob(rnd{2,6},x,y,true)
+  add_mob(rnd(split"2,4,5,6"),x,y).stun=1
  end
 end
 
 function loot_box_s(x,y)
- add_item(rnd{1,2,3,4,6},1,x,y)
+ add_item(rnd(split"1,2,3,4,5,6,7,8,9,10"),1,x,y)
 end
 
 function loot_box_l(x,y)
- local item=rnd{1,2,3,5,6}
- add_item(item,item==5 and 1 or 2,x,y)
+ add_item(rnd(split"1,2,3,4,5,6,7,8,9,10"),2,x,y)
 end
 
 function loot_mob(m)
- if not get_item(m.x,m.y) and rnd()<0.07 then
-  add_item(rnd{1,1,2,3,4,6},1,m.x,m.y)
+ local flritem=get_item(m.x,m.y)
+ if m.soul then
+  del(items,flritem)
+  add_item(13,1,m.x,m.y)
+ elseif not flritem 
+   and rnd(100)<mob_loot_pct[m.typ] then
+  add_item(rnd(mob_loot[m.typ]),1,m.x,m.y)
  end
 end
 -->8
@@ -1511,49 +1807,63 @@ end
 --mapgen
 
 transt,stairb=
-splitdict"floor:192,wall:142,door:203,up:206,down:207",
+splitdict"floor:192,wall:143,door:203,up:206,down:207",
 splitdict"124:t,179:t,214:t,233:t"
 
 function new_floor()
- if floor==-1 then
-  hub_floor()
-  return
- end
- 
- local tmap,imap,bmap,rmap,down_pos=map_gen(17,15,transt)
- local px,py=posxy(down_pos)
-
- for pos=1,255 do
-  local x,y=posxy(pos)
-  mset(x,y,tmap[pos])
- end
- prettywalls()
- 
- pc.x,pc.y,pc.xo,pc.yo=px,py,0,0
- p_dist_map=get_dist_map(mob_pos(pc))
  floor+=1
- mobs,traps={pc},{}
- spawn_traps()
- spawn_mobs(rmap,down_pos)
- items,fov,fog,frame,is_p_turn=
-  {},{},{},0,true
- update_fov()
- update_fog()
-end
-
-function hub_floor()
- for x=0,16 do
-  for y=0,16 do
-   mset(x,y,mget(x+17,y))
+ 
+ pc.xo,pc.yo,
+ ptcls,maps,fturn,mobs,traps
+ =
+  0,0,
+  {},0,0,{pc},{}
+ 
+ if floor==0 then
+  --hub
+	 for x=0,16 do
+	  for y=0,16 do
+	   mset(x,y,mget(x+17,y))
+	  end
+	 end
+	 
+	 pc.x,pc.y=8,12
+ else
+  --regular floor
+  if (floor==1) gtime_start=t()
+  local sane,tmap,imap,bmap,rmap,down_pos,px,py
+   =false
+  
+  while not sane do
+   tmap,imap,bmap,rmap,down_pos=map_gen(17,15,transt)
+	  px,py=posxy(down_pos)
+	
+		 for pos=1,255 do
+		  local x,y=posxy(pos)
+		  mset(x,y,tmap[pos])
+		 end
+		 
+		 sane=true
+		 local reachable=get_dist_map(down_pos,"dmap",true,true)
+		 for pos=1,255 do
+		  if tmap[pos]!=143 and not reachable[pos] then
+		   sane=false
+		   break
+		  end
+		 end
   end
+
+	 prettywalls()
+	 
+	 pc.x,pc.y=px,py
+  p_dist_map=get_dist_map(mob_pos(pc))
+  spawn_traps()
+  spawn_mobs(rmap,down_pos)
+  refresh_task_maps()
  end
  
- mobs,traps={pc},{}
- pc.x,pc.y,pc.xo,pc.yo=8,12,0,0
- p_dist_map=get_dist_map(mob_pos(pc))
  items,fov,fog,frame,is_p_turn=
   {},{},{},0,true
- floor+=1
  update_fov()
  update_fog()
 end
@@ -1671,10 +1981,9 @@ function map_gen(tw,th,transt)
    end
    
    local t=shuf(spair)
-   tmap[spair[1]]="down"
-   tmap[spair[2]]="up"
-   down_pos=spair[1]
-   stair_d=maxd
+   tmap[spair[1]],tmap[spair[2]],down_pos,stair_d
+   =
+    "down","up",spair[1],maxd
   end
 	end
 	
@@ -1830,6 +2139,7 @@ function map_gen(tw,th,transt)
 	 end
 
   try+=1
+  
   local good=#walls()<=area*max_wall_pct and stair_d>100
   if (good or (try>10 and stair_d>0)) break
  end
@@ -1844,13 +2154,11 @@ function map_gen(tw,th,transt)
  return tmap,imap,bmap,rmap,down_pos
 end
 
+function is_wall(t)
+ return not t or (t>141 and t<190)
+end
+
 function prettywalls()
- function is_wall(t)
-  return not t or (t>141 and t<190)
- end
- function mgetpos(pos)
-  return mget(posxy(pos))
- end
  local ntmap={} 
  for pos=1,255 do
   if is_wall(mgetpos(pos)) then
@@ -1866,18 +2174,10 @@ function prettywalls()
   if (ntmap[pos]) mset(x,y,ntmap[pos])
  end
  --do 3d thing
- local wall3d_for_flr=splitdict"192:195,208:211,209:211,210:211,225:227,226:227,240:243,241:243,242:243"
--- local wall3d_for_flr={
---  f192=195,
---  f208=211,f209=211,f210=211,
---  f225=227,f226=227,
---  f240=243,f241=243,f242=243
--- }
- local flr_for_wall3d=splitdict"195:192,211:210,227:226,243:242"
+ local wall3d_for_flr,flr_for_wall3d=splitdict"192:195,208:211,209:211,210:211,225:227,226:227,240:243,241:243,242:243",splitdict"195:192,211:210,227:226,243:242"
  for pos=19,237 do
   local tile,above=mgetpos(pos),mgetpos(pos-17)
-  local wtile=wall3d_for_flr[tile]
-  local ftile=flr_for_wall3d[tile]
+  local wtile,ftile=wall3d_for_flr[tile],flr_for_wall3d[tile]
   local x,y=posxy(pos)
   if wtile and is_wall(above) then
    mset(x,y,wtile)
@@ -2087,12 +2387,17 @@ function spawn_traps()
  for _x=1,17 do
   for _y=1,15 do
    if mget(_x,_y)==200 then
-    add(traps,{
-     x=_x,y=_y,atk=2,anim=split"200,216,232,216"
-    })
+    add_trap(_x,_y)
    end
   end
  end
+end
+
+function add_trap(_x,_y)
+ add(traps,{
+  x=_x,y=_y,atk=2,anim=split"200,216,232,216"
+ })
+ mset(_x,_y,200)
 end
 
 function trigger_trap(x,y)
@@ -2107,29 +2412,29 @@ function trigger_trap(x,y)
  end
 end
 __gfx__
-11111111111111111117161111111111111716111111111111111111111111111118881e1118881e111888111118881111111111111111111111111111111111
-11111111111716111117777111171611111777711111111111ee8111111111111118e81e1118e81e1118e81e1118e81e181e111111111111111111111181e111
-117117111117777111171711111777711117171111ee81111e18881111111111188881ee188881ee1888811e1888811e811888111181e1111181e11118118881
-11177111171717111717777711771711117777771e188811181888111eee8881188188e1188188e1188181ee188181ee81888e81181188811811888118188888
-1117711177177777771111111777777717711111e188888118888811e11888881188188111818881188818e1118188e188888881181888e81818888818888888
-11711711777111117771771117711111177177118888888118888811888888881881111118188111188118811818888118888111188888881888888811888811
-11111111177177111771771111717711117177111888881111888111188888811188111118818811118811111881881118181811118888811188888111818181
+11111111111111111117161111111111111716111111111111111111111111111118881e1118881e111888111118881111188811111888111118881111188811
+11111111111716111117777111171611111777711111111111ee8111111111111118e81e1118e81e1118e81e1118e81e1188e8111188e8111188eeee1188eeee
+117117111117777111171711111777711117171111ee81111e18881111111111188881ee188881ee1888811e1888811e18888eee18888eee18888ee118888ee1
+11177111171717111717777711771711117777771e188811181888111eee8881188188e1188188e1188181ee188181ee18818ee118818ee118818e1e18818e1e
+1117711177177777771111111777777717711111e188888118888811e11888881188188111818881188818e1118188e111888e1e11818e1e11888eee11818eee
+11711711777111117771771117711111177177118888888118888811888888881881111118188111188118811818888118811eee18188eee188111e1181881e1
+111111111771771117717711117177111171771118888811118881111888888111881111188188111188111118818811118811e1188181e11188111118818811
 11111111111717111111711111171711111171111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 1111111111111111111111111ee1ee111ee1ee111111111111118181111181811111818111118811111111111111111111118811111111111e11111111111111
 188188111111111111111111e81118e1e88188e11ee1ee1111118881111188811111888118188e881811881118118811181888881e188811eee8881111188811
-8e111e8118111811818881818811188188111881e88188e111818e8811818e8811818e881818888818188e881818888818188888eeee8e81ee1e8e811e8e8e81
+8e111e8118111811818881818811188188111881e88188e111818e8811818e8811818e881818888818188e881818888818188888eee78781ee1787811e878781
 ee888ee1888888818888888181e1e18181e1e18188e1e88118818888188188881881888818888811188888881888888818888811ee188881e1818881eee88881
 e18881e1888888818e181e8118888811188888111888881118881888188818111888181118888881188888811888888118888881e1818811e1881811ee188811
 11181111181818111881881181888181818881818188818118888811188888881888881118888111188881111888811118888111e188188111888181e1818881
 111111111111111111111111181118111811181118111811188188111881881118818888118188111181881111818811118188111188818111888881e1881881
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111188888811888888118888181
 ee118888ee118888ee11888811111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-eee88ee8eee88ee8eee88ee811111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-18ee888818ee888818ee888811111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-1881e8811881e8811881e88111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-18888888188888881888888811111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-18811881188118881888188111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-18881888188811111111188811111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+eee88ee8eee88ee8eee88ee8118811111111111111881111111111111111111111111111111111111111111111111111181e111111111111111111111181e111
+18ee888818ee888818ee8888118188111188881111818811111111111111111111111111111111111111111111111111811888111181e1111181e11118118881
+1881e8811881e8811881e88111188e8111818e8111188e8111111111111111111111111111111111111111111111111181888e81181188811811888118188888
+18888888188888881888888818188881111888811118888111111111111111111111111111111111111111111111111188888881181888e81818888818888888
+18811881188118881888188111888111188881111888811111111111111111111111111111111111111111111111111118888111188888881888888811888811
+18881888188811111111188811881811118818111188181111111111111111111111111111111111111111111111111118181811118888811188888111818181
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 1181e111111111111181e11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 118888111181e1111188881111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
@@ -2139,38 +2444,38 @@ eee88ee8eee88ee8eee88ee811111111111111111111111111111111111111111111111111111111
 11188811181888811118881111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 11811811111881111181181111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111113133313111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111113331333111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111113133313111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111113331333111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111113333333333333111333333313333311333333113331333333333333111133333331111133333333111133311111333333311111
-11111111111111111111111133333333333333313333333333333331333333313331333333333333111133333331111133333333111133311111333333311111
-11111111111111111111111133333333333333313333333333333331333333313331133333333333111113333311111133333333111133311111133333311111
-11111111111111111111111133311111111133313331111133313331111133313331111111111111111111111111111111111111111133311111111133311111
-11111333333333333311111133311111111133313331333333313331333133313331133333111333331113333311133311111333331133313333333333311333
-11113333333333333331111133311111111133313331333333313331333133313331333333313333333133333331333311113333333133313333333333313333
-11113333333333333331111133311111111133313331333333313331333133313331333333313333333133333331333311113333333133313333333333313333
-11113331111111113331111133311111111133313331333133313331333133313331333133313331333133313331333111113331333133311111111133313331
-11113331133333113331111133311111111133311333333333313333333333113331333333313331333133333331333333313333333111113331333133333333
-11113331333333313331111133311111111133313333333333313333333333313331333333313331333133333331333333313333333111113331333133333333
-11113331333333313331111133311111111133313333333333111333333333313311133333113331331113333311133333311333331111113311333133333333
-11113331333133313331111133311111111133313331111111111111111133311111111111113331111111111111111133311111111111111111333111111111
-11113331333333313331111133333333333333313333333333111333333333313333333333113331111113333311111133311111333333331111333133111111
-11113331333333313331111133333333333333313333333333313333333333313333333333313331111133333331111133311111333333331111333133311111
-11113331133333113331111113333333333333111333333333313333333333113333333333313331111133333331111133311111333333331111333133311111
-11113331111111113331111111111111111111111111111133313331111111111111111133313331111133313331111133311111111111111111333133311111
-11113333333333333331111133333333333133313331333333313331333133311111333333311111111133331111111133313333333111111111111111111111
-11113333333333333331111133333333333133313331333333313331333133311111333333311111111133331111111133313333333111111111111111111111
-11111333333333333311111133333333333133313331333333313331333133311111133333111111111113331111111133111333331111111111111111111111
-11111111111111111111111111111111333133313331111133313331111133311111111111111111111111111111111111111111111111111111111111111111
-11111111111111111111111133333333333133313333333333333331333333313311111111111333111113333311133311111111331111111111111111111111
-11111111111111111111111133333333333133313333333333333331333333313331111111113333111133333331333311111111333111111111111111111111
-11111111111111111111111133333333333133311333333313333311333333113331111111113333111133333331333311111111333111111111111111111111
-11111111111111111111111111111111333133311111111111111111111111113331111111113331111133313331333111111111333111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111113133313111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111113331333111111111
@@ -2203,38 +2508,38 @@ eee88ee8eee88ee8eee88ee811111111111111111111111111111111111111111111111111111111
 1111111111111111111111113333333333313331d3333333d33333d1333333d13331111111113333111133333331333311111111333111111111111111111111
 111111111111111111111111dddddddd333133311ddddddd1ddddd11dddddd11333111111111333d1111333d3331333d11111111333111111111111111111111
 11111111111111111111111111111111333133311111111111111111111111113331111111113331111133313331333111111111333111111111111111111111
-11111111ccccccccd1ddd1d1ddd1ddd1111111111111111111111111111111111711171111aaa11111aaa1111aaaaa1111aaa11111111111111111a1ddddddd1
-11111111cccccccc111111111111111111111111111111111111111111111111161116111a111a111a111a11a11111a1a1aaa1a11aaaaaa1111aa1a111111111
-11111111ccccccccddd1ddd1d1ddd1d111111111111111111111111111111111616161611a111a111a111a1191999191a11111a11a1111a1aa1aa1a111111dd1
-11111111cccccccc1111111111111111111111111111111111111111111111111111111111aaa11191aaa1a111999111a11a11a11a1aa1a1aa1aa11111dd1dd1
-11111111ccccccccd1ddd1d111111111111111111111111111111111111111111711171119119a1199119aa191999191aaa1aaa11aaaaaa1aa111191d1dd1dd1
-11131111cccccccc11111111111311111111111111111111111111111111111116111611199aaa11199aaa1111999111111111111111111111199191d1dd1dd1
-11111111ccccccccddd1ddd1111111111111111111111111111111111111111161616161119991111199911191999191999999911999999199199191d1dd1dd1
-11111111cccccccc1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
-111111111111111111111111ddd1ddd111111111111111111111111111111111111111111113311111133111133333111111111111111111aaaaaaaa11111111
-1313111111111111111111111111111111111111111111111111111111111111171117111311131113111311311111313333333113333331aaaaaaaa11111111
-113111111113131111111111d1ddd1d1111111111111111111111111111111111611161113111311131113113111113131111131131111319111111911111111
-11111111111131111111111111111111111111111111111111111111111111111111111111111111311111311111111131111131131111311199191111111111
-11113131111111111131311111113131111111111111111111111111111111111111111113113311331133313111113133333331133333319111111911111111
-31311311131311111113111131311311111111111111111111111111111111111711171113313311133333111111111111111111111111119191991911111111
-13111111113111111111111113111111111111111111111111111111111111111611161111333111113331113111113133333331133333319111111911111111
-11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111119999999911111111
-311131131111111111111111ddd1ddd11111111111111111111111111111111111111111111111110000000000000a00000000000000000000aaaa0000000000
-131311311111131111111111111111111111111111111111111111111111111111111111111111110000a0000000a900000aa000000aa0000a1111a00a009a00
-131311311131111113111131d1ddd1d1111111111111111111111111111111111711171111111111000aaa00000a900000000000009aaa0000aaaa000aa99aa0
-113113111111311111111111111131111111111111111111111111111111111111111111111111110001aaa000aaa9000099aa0009999aa0091111900a191aa0
-3113113131131131111311113113113111111111111111111111111111111111111111111111111100191a90000a900000991a00099119a0009999000aa19aa0
-131313111313131111131311131313111111111111111111111111111111111111111111111111110191090000a9000009aaaaa0099119900a1111a00a191aa0
-131313111311131113111111131113111111111111111111111111111111111117111711111111110910000000900000000990000000000000aaaa0000a990a0
+11111111ccccccccd1d11dd1ddd1ddd1000000000000000000000000000000001711171111aaa11111aaa1111aaaaa1111aaa11111111111111111a1ddddddd1
+11111111cccccccc111111111111111100000000aaaaaaaa0000000000000000161116111a111a111a111a11a11111a1a1aaa1a11aaaaaa1111aa1a111111111
+11111111ccccccccd11dd1d1d1ddd1d10000000077777777aaaaaaaa00000000616161611a111a111a111a1191999191a11111a11a1111a1aa1aa1a111111dd1
+11111111cccccccc1111111111111111aaaaaaaa7777777777777777777777771111111111aaa11191aaa1a111999111a11a11a11a1aa1a1aa1aa11111dd1dd1
+11111111cccccccc11111111111111110000000077777777aaaaaaaa000000001711171119119a1199119aa191999191aaa1aaa11aaaaaa1aa111191d1dd1dd1
+11131111cccccccc111311111113111100000000aaaaaaaa000000000000000016111611199aaa11199aaa1111999111111111111111111111199191d1dd1dd1
+11111111cccccccc11111111111111110000000000000000000000000000000061616161119991111199911191999191999999911999999199199191d1dd1dd1
+11111111cccccccc1111111111111111000000000000000000000000000000001111111111111111111111111111111111111111111111111111111111111111
+111111111111111111111111ddd1ddd1000a00000a777a0000a7a00000070000111111111113311111133111133333111111111111111111aaaaaaaa11111111
+13131111111111111111111111111111000a00000a777a0000a7a00000070000171117111311131113111311311111313333333113333331aaaaaaaa11111111
+113111111113131111111111d1ddd1d1000a00000a777a0000a7a000000700001611161113111311131113113111113131111131131111319111111911111111
+11111111111131111111111111111111000a00000a777a0000a7a000000700001111111111111111311111311111111131111131131111311199191111111111
+11113131111111111131311111113131000a00000a777a0000a7a000000700001111111113113311331133313111113133333331133333319111111911111111
+31311311131311111113111131311311000a00000a777a0000a7a000000700001711171113313311133333111111111111111111111111119191991911111111
+13111111113111111111111113111111000a00000a777a0000a7a000000700001611161111333111113331113111113133333331133333319111111911111111
+11111111111111111111111111111111000a00000a777a0000a7a000000700001111111111111111111111111111111111111111111111119999999911111111
+311131131111111111111111ddd1ddd11111111111111111111111111111111111111111000000000000000000000a00000000000000000000aaaa0000000000
+13131131111113111111111111111111111111111111111111111111111111111111111100a00a000000a0000000a900000aa000000aa0000a1111a00a009a00
+131311311131111113111131d1ddd1d1111111111111111111111111111111111711171100900900000aaa00000a900000000000009aaa0000aaaa000aa99aa0
+113113111111311111111111111131111111111111111111111111111111111111111111191991910001aaa000aaa9000099aa0009999aa0091111900a191aa0
+31131131311311311113111131131131111111111111111111111111111111111111111111a11a1100191a90000a900000991a00099119a0009999000aa19aa0
+131313111313131111131311131313111111111111111111111111111111111111111111119119110191090000a9000009aaaaa0099119900a1111a00a191aa0
+131313111311131113111111131113111111111111111111111111111111111117111711191991910910000000900000000990000000000000aaaa0000a990a0
 11111111111111111111111111111111111111111111111111111111111111111111111111111111000000000000000000000000000000000000000000000000
-111111111111111111111111ddd1ddd1000000000000000000000000011111001111111111111111111111111111111111111111111111110011100011111111
-11111111111111111111111111111111000001111110000000000000017771001111111111111111111111111111111111111111111111110017110011111111
-113133111131331111111111d1ddd1d1000011711711000000000000011711001311131111111111111111111111111111111111111111110017711011111111
-11113311111133111111311111111111000017711771000000000000001110001111111111111111111111111111111111111111111111110017771011111111
-13311111133111111331111113311111000011711711000000111000000000001111111111111111111111111111111111111111111111110017711011111111
-13313111133111111331111113311111000001111110000001171100000000001111111111111111111111111111111111111111111111110017110011111111
-11111111111111111111111111111111000000000000000001777100000000001311131111111111111111111111111111111111111111110011100011111111
-11111111111111111111111111111111000000000000000001111100000000001111111111111111111111111111111111111111111111110000000011111111
+111111111111111111111111ddd1ddd10000011111100000000000001111111011111111111111111111111100000000000000000000aa000000110011111111
+111111111111111111111111111111110000117117110000000000001777771011111111111aaaa1111aa11100aaa000009aa0a0000aa0000001dd1011111111
+113133111131331111111111d1ddd1d1000117711771100000000000117771101311131111111aa11119aa110a111a0009111aa000aa9000001dd10011111111
+1111331111113311111131111111111100017771177710000011100001171100111111111111a1a111919aa111aaa1111911aaa10aa9000001dd7d1011111111
+133111111331111113311111133111110001177117711000011711000011100011111111119911a1119111a119119a11111111110a9a00001dd7ddd111111111
+13313111133111111331111113311111000011711711000011777110000000001111111119991111191111a11999aa11119aa111099000001dd77dd111111111
+1111111111111111111111111111111100000111111000001777771000000000131113111a9111111911111111999111119aa1110990000001d77d1011111111
+11111111111111111111111111111111000000000000000011111110000000001111111111111111111111111111111111111111000000000011110011111111
 __label__
 mjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmjmjmmmjmj
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
@@ -2366,26 +2671,26 @@ mmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmjmmmj
 jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 
 __gff__
-0000000000030303000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000505050000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000000000000000000000000050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050000000500000000000203030703030200000000000000000002000000000003000400000000000000020000000000000000000000000000000000000000000000
+0000000000030303000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050000000000000000000203030703030200000000000000000002000000000003000400000000000000020000000000000000000000000000000000000300000000
 __map__
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d1d0c0d2c0c0e1e2c9cacaf2d0c0c0e1e0e0e0e0c1c0c0c0c0c0c0f2f2d2c0e2c0c0d1c0e2f2c0c0d2c0c0d2d2e2c0f1f2c0c0c0d2d2d1c0c1c0d2c0f1c0d1e2c0c0c0d2f2d0d2d2f2c0e1e2e1e0
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0f0f2f1c0e1e0f2e0e1d2d1d0d0d1f1e1e0e0e0c1d1d2c0f2c0d2f1f0f1c0e1e2c0c0c0e1e2f0f1c0d2e2e2e1e2c0f1f0f0f2c0c0d1d0d2c1c0c0d1c0f0c0e1e2c0c0f2f1d2d2d0f0f2e2e2c0c0
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0f1f0d0d2c0f1f0f1e2c0d1f0d1f1f0e2e1e1e0c1d0d1d2d2c0f2d1f2c0f2e0e1e2e2d2e0e0e1e2c0c0f2e1e1e2f1f2c0d2f2d2c0c0d2c0c1d1c0c0d2f1c0e0e1e2f2f1f0c0d1c0f1c0c0e0e1e2
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d1f1d1f1c0e2e0e1e0c0c0f2d2f1cac0f1d2e2e1c1d2d9c0c0c0e2f2c0c0d2e1c0e1c0c0c0c0f1f1c0c0d9d2c0d2d1c0c0c0f2c9c0c0c0d2c1e2c0c0c0c0f1c0c0d2d2d1d0c0c0c0e2e0e0c0c0c0
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0c0c0c0d2cae1c0c0c0c0c0cac9cad2d1c0f2e2c1c0f1f0d1f2e1e1f0f1c0d1f1d2e0e0c0f2c0d2c0d2c0d0d1c0c0c0d1f1dacad0f2c0c0c1c0c0e1f1c0c0d1c0daf2d2d1c0f2d9e0e1e2e2c0e1
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8f8f8f8f9091928f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0d2f1c0d2c0e1e1f1e1c0f2e2d2e0c9e0e1e2d2c1f2c0d2d9dae1e0e0e1e2e2e1e1e0e0d2c0d2d1d2d0d1dac0d2f2c0f1d9c9cad2d0c0d2c1e1e2c0d9f2c0d9c0d2c0c0d2f2d9dae1dae2c0c0e2
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8f909191a4cea39191928f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1caf0d1d0c0e2e1e0c9f2c0c0e2c8e1dae1c0f2f2c1c0c9cae2c0c0d2c0d1c0e1e2c0c0d2f2cac0c0e2e0e1e1c0f2d2f2f2cacad2e2c9cac9c1d2c0c0d2c0c0e2e2e1c0c0c0c0d1c0c0c0d2c0c0e2
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8fa0e0e3d3f2d3e3e0a28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d2d28ed2f2c0c8c8c8c0c0d2c0e1c0d2c0f0c0e2c1e2c0d2f2c0d1c9cae2c0e2c0d0cac0d2c0f0f2c0f2f2d0caf1e1c0f1f1c9f2c0d2e2d1c1c0c0c9c0d1d0c9e1e0caf1c0cad2d0d0c0c0c9e2c0
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8fa0e1e1f1f2f1d0e0a28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0f2f1cac0e2c0f1e0e1d1c8d2c0c0e1f1f0e2d9c1e0e1c0c9e2c0e2d1c0d2d2c9c0c0d1c9f0e2f1f2e1d1f1f1c0f2c0d2c0f2f1d1c0c0d2c1c0f2c9d2c9cae1cae0f2c0c0d0c0c0c9c0c0e1f2c0
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8fa0d0d2f1ccf1e1e1a28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d2f1c9c0cac9c0c0e1c0d0d1c0f1c0f2c0c0c9cac1c0c0c0c0c0c9cac0e2e0f2c0c0d2d2c0c0f2cac0d0d2f2c0e1d2c9f2c9f1f2c0e2e1e1c1cac0d0cac0e2c0f2c0d2c0c0c0f2c0d1c0c0c0c9c9
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8fa0d9d1f1f0f1d2d9a28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0e2d2f2c0c9e2e1e2e1e1e0e0f1e1caf2e1c0c0c1c9e2c0f1e2d9d9e2e0e0c0c9d2d1dad0c9d0f1d1f2c9c9f0e2c0c0cac0f0c9f0c0d2e2c1f2f1d1e2c0c0d9c0e2c0c0d1f1f0f2cad2c0d2c0d1
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8fa0dad9c0f0c0d9daa28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1e1e0e1c8f1e0d0c9e1c0e28ec98ee2f1d1d0d0e1c1e0e1d2c9dad9e0d9e2e1d2d1f2dacaf2f0f1c0d2d2d9caf1c0e1d2c0f2d1cac9d1c0c0c1d2f2c0e1e2c0cae1f2e2c9daf2cad9cac9d2cad1d0
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8fb0b1b194db93b1b1b28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d2e1e1d0f0e2e0e0e1cae0c9cac9e0c0d1cdd1f1c1c0d1d0d0d1f1d1c0c0f1e1d2e2c0e2e1e1e0f1f2c0c0c0c98ef2c9caf1c9e1e0d9c8dac1d2d2c0d2c0d2c9cacad1d0d2c0c0c0c8c0c8d0c0c0
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d1c8f0c8c0c0cae0e2d0f08ec98ee2c0f2d2f1cac1d2cad1d1c9c0cac9cad1e1e0e0e1d2f1e1e0e0e2c0c0d1c08ec9cac9cac9c8e1e1c0d1c1d0cad1c0d2d0d2cad1d0d0d1f2c8c0f2f0f1d2c8d0
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0d0c0c0c0c9d2e2c9e1f1e1e0e0e1c0c0d9c9cac1c0d2c0c0c9c0f1c0f1d2e0e0e1c0e1c0f0e0e0e2d2c0c0d08ecaf1c9cac9d2d9c8dac0c1c0d0c0d1d0d0c9d1c9d1d1d2f1f0f1c8f2c8c0c8c0
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c18ecad2da8ee2e1e0e0e1e2c0e1e0c0c0e1e1e2c0c1f2c9c0f2f2e1e08ed0dae1e0c9e0e1c0c0d2c0c0cad1d2c0c0e0e1e0e0e0d2f1f0f2c0c1c0c0c0f2f1f0d9dad2c0c0c0d1c0c0c0f0c8e0f1e2
-c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c28f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1f1d0f0f0cac0c9cad9e0c0c9e0e0e0f0d1e0e1d2c1f1caf0c9daf2e1f0e08ecae1e1e1e0f1ca8ed2d9d2c0c0c0d1e0e0e0e0e1f1c8c8c8d2c1c0c9f2c0f0f1d1d9c9d9f0f1c9c8c0c8f1c0e1c8c0
+00000000000000000000000000000000008f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d1d0c0d2c0c0e1e2c9cacaf2d0c0c0e1e0e0e0e0c1c0c0c0c0c0c0f2f2d2c0e2c0c0d1c0e2f2c0c0d2c0c0d2d2e2c0f1f2c0c0c0d2d2d1c0c1c0d2c0f1c0d1e2c0c0c0d2f2d0d2d2f2c0e1e2e1e0
+00000000000000000000000000000000008f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0f0f2f1c0e1e0f2e0e1d2d1d0d0d1f1e1e0e0e0c1d1d2c0f2c0d2f1f0f1c0e1e2c0c0c0e1e2f0f1c0d2e2e2e1e2c0f1f0f0f2c0c0d1d0d2c1c0c0d1c0f0c0e1e2c0c0f2f1d2d2d0f0f2e2e2c0c0
+00000000000000000000000000000000008f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0f1f0d0d2c0f1f0f1e2c0d1f0d1f1f0e2e1e1e0c1d0d1d2d2c0f2d1f2c0f2e0e1e2e2d2e0e0e1e2c0c0f2e1e1e2f1f2c0d2f2d2c0c0d2c0c1d1c0c0d2f1c0e0e1e2f2f1f0c0d1c0f1c0c0e0e1e2
+00000000000000000000000000000000008f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d1f1d1f1c0e2e0e1e0c0c0f2d2f1cac0f1d2e2e1c1d2d9c0c0c0e2f2c0c0d2e1c0e1c0c0c0c0f1f1c0c0d9d2c0d2d1c0c0c0f2c9c0c0c0d2c1e2c0c0c0c0f1c0c0d2d2d1d0c0c0c0e2e0e0c0c0c0
+00000000000000000000000000000000008f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0c0c0c0d2cae1c0c0c0c0c0cac9cad2d1c0f2e2c1c0f1f0d1f2e1e1f0f1c0d1f1d2e0e0c0f2c0d2c0d2c0d0d1c0c0c0d1f1dacad0f2c0c0c1c0c0e1f1c0c0d1c0daf2d2d1c0f2d9e0e1e2e2c0e1
+00000000000000000000000000000000008f8f8f8f8f8f8f9091928f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0d2f1c0d2c0e1e1f1e1c0f2e2d2e0c9e0e1e2d2c1f2c0d2d9dae1e0e0e1e2e2e1e1e0e0d2c0d2d1d2d0d1dac0d2f2c0f1d9c9cad2d0c0d2c1e1e2c0d9f2c0d9c0d2c0c0d2f2d9dae1dae2c0c0e2
+00000000000000000000000000000000008f8f8f8f909191a4cea39191928f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1caf0d1d0c0e2e1e0c9f2c0c0e2c8e1dae1c0f2f2c1c0c9cae2c0c0d2c0d1c0e1e2c0c0d2f2cac0c0e2e0e1e1c0f2d2f2f2cacad2e2c9cac9c1d2c0c0d2c0c0e2e2e1c0c0c0c0d1c0c0c0d2c0c0e2
+00000000000000000000000000000000008f8f8f8fa0e0e3d3f2d3e3e0a28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d2d28ed2f2c0c8c8c8c0c0d2c0e1c0d2c0f0c0e2c1e2c0d2f2c0d1c9cae2c0e2c0d0cac0d2c0f0f2c0f2f2d0caf1e1c0f1f1c9f2c0d2e2d1c1c0c0c9c0d1d0c9e1e0caf1c0cad2d0d0c0c0c9e2c0
+00000000000000000000000000000000008f8f8f8fa0e1e1f1f2f1d0e0a28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0f2f1cac0e2c0f1e0e1d1c8d2c0c0e1f1f0e2d9c1e0e1c0c9e2c0e2d1c0d2d2c9c0c0d1c9f0e2f1f2e1d1f1f1c0f2c0d2c0f2f1d1c0c0d2c1c0f2c9d2c9cae1cae0f2c0c0d0c0c0c9c0c0e1f2c0
+00000000000000000000000000000000008f8f8f8fa0d0d2f1ccf1e1e1a28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d2f1c9c0cac9c0c0e1c0d0d1c0f1c0f2c0c0c9cac1c0c0c0c0c0c9cac0e2e0f2c0c0d2d2c0c0f2cac0d0d2f2c0e1d2c9f2c9f1f2c0e2e1e1c1cac0d0cac0e2c0f2c0d2c0c0c0f2c0d1c0c0c0c9c9
+00000000000000000000000000000000008f8f8f8fa0d9d1f1f0f1d2d9a28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0e2d2f2c0c9e2e1e2e1e1e0e0f1e1caf2e1c0c0c1c9e2c0f1e2d9d9e2e0e0c0c9d2d1dad0c9d0f1d1f2c9c9f0e2c0c0cac0f0c9f0c0d2e2c1f2f1d1e2c0c0d9c0e2c0c0d1f1f0f2cad2c0d2c0d1
+00000000000000000000000000000000008f8f8f8fa0dad9c0f0c0d9daa28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1e1e0e1c8f1e0d0c9e1c0e28ec98ee2f1d1d0d0e1c1e0e1d2c9dad9e0d9e2e1d2d1f2dacaf2f0f1c0d2d2d9caf1c0e1d2c0f2d1cac9d1c0c0c1d2f2c0e1e2c0cae1f2e2c9daf2cad9cac9d2cad1d0
+00000000000000000000000000000000008f8f8f8fb0b1b194db93b1b1b28f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d2e1e1d0f0e2e0e0e1cae0c9cac9e0c0d1cdd1f1c1c0d1d0d0d1f1d1c0c0f1e1d2e2c0e2e1e1e0f1f2c0c0c0c98ef2c9caf1c9e1e0d9c8dac1d2d2c0d2c0d2c9cacad1d0d2c0c0c0c8c0c8d0c0c0
+00000000000000000000000000000000008f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1d1c8f0c8c0c0cae0e2d0f08ec98ee2c0f2d2f1cac1d2cad1d1c9c0cac9cad1e1e0e0e1d2f1e1e0e0e2c0c0d1c08ec9cac9cac9c8e1e1c0d1c1d0cad1c0d2d0d2cad1d0d0d1f2c8c0f2f0f1d2c8d0
+00000000000000000000000000000000008f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c0d0c0c0c0c9d2e2c9e1f1e1e0e0e1c0c0d9c9cac1c0d2c0c0c9c0f1c0f1d2e0e0e1c0e1c0f0e0e0e2d2c0c0d08ecaf1c9cac9d2d9c8dac0c1c0d0c0d1d0d0c9d1c9d1d1d2f1f0f1c8f2c8c0c8c0
+00000000000000000000000000000000008f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c18ecad2da8ee2e1e0e0e1e2c0e1e0c0c0e1e1e2c0c1f2c9c0f2f2e1e08ed0dae1e0c9e0e1c0c0d2c0c0cad1d2c0c0e0e1e0e0e0d2f1f0f2c0c1c0c0c0f2f1f0d9dad2c0c0c0d1c0c0c0f0c8e0f1e2
+00000000000000000000000000000000008f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8fc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1f1d0f0f0cac0c9cad9e0c0c9e0e0e0f0d1e0e1d2c1f1caf0c9daf2e1f0e08ecae1e1e1e0f1ca8ed2d9d2c0c0c0d1e0e0e0e0e1f1c8c8c8d2c1c0c9f2c0f0f1d1d9c9d9f0f1c9c8c0c8f1c0e1c8c0
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1caf0cdf1caf18ecd8ee1e2e1e0e0cad0f18ec0c0c1c0f0f2f0d9d98ed1e2d2e2e0e0cad0d1d0f1d9da8e8e8e8e8ee1e0e0e1e0f2f1f0d1f0c1e1e2c0c0f2dad9d2d9f2f1f2cac9d2c0f2c8c0c8f2
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c9d1f2f2f1d0c8c8c8f1e1e0cde1e2c9f0f0d2e2c1d2e2e1e2d2e2e2f2c0d9e1e2e0e0e1c0d2d1d1c0ca8ee1e0e1f2e2e1e0e0d9c9f1dadac1f2f0c0c0e2e28e8e8ee0e0e0e2c0e2c0d2d1c0f1c9
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c18ed9caf08ed2f1f0d1c0e1d0e1c0d1cacdc9f2c0c1c0e18ee1e2e18edc8ed0d0e0c8c8e0d1d0d0d0d1c98ee08ee0d28e8e8ec8f2dac9d9cac1f1caf1e2e1e1c0c0c0e1e0e0e1c8c0c8c0c0c0c8f2
@@ -2402,12 +2707,12 @@ c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
 c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
 __sfx__
-000100000613004000026000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000100000613004100021000010000100001000010000100001000010000100001000010000100001000010000100001000010000100001000010000100001000010000100001000010000100001000010000100
 000100000b1400b1300e0300d030016100c4000040000400004000040000400004000040000400004000040000400004000040000400004000040000400004000040000400004000040000400004000040000400
 00010000167400c740107300075000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700
 00010000160201a0301d04020050270502b00000000050001b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0001000026620247101f7102f7002f7001c700117001e7002072020710207101f7101b7001970017700087000e7000f7100f7100e7100e7100d71005700107000070000700007000070001700007000070000700
-000600002661023600215202352025530295400060000600041000010000100031000610000100021000010001100001000110000100001000010000100001000010000100001000010000100001000010000100
+000600002661323600215202352025530295420060000600041000010000100031000610000100021000010001100001000110000100001000010000100001000010000100001000010000100001000010000100
 000100000042000420004200042000420004000040017400114000d40000420004200042000420004200042000420004000040000400004000040000400004000740007400074000640005400004000040000400
 0002000020130001000b1001e1301d13000100001001a13000100001002013000100001001e1301e1300010000100001000010000100001000010000100001000010000100001000010000100001000010000100
 000200002a63029630296000f600106000000000000000001f6201e6201d6000000000000000001c6001d6001862017610166000000025600256002660000000116000f6100f6002f60000000000000000005600
@@ -2415,13 +2720,18 @@ __sfx__
 0001000026130251202f1202a120241201e1202812039110011000110001100001000010000100001000010000100001000010000100001000010000100001000010000100001000010000100001000010000100
 000400002515025150001001f1501f150001001715017150001001215012150001000010005150041500415004150031500314002140021400113000130001200011000100001000010000100000000000000000
 000100001d7401f74022730287102f730007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700
-000500002b73028730247302873030730077000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700
+000500002b73028730247302873030730357403774000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700
 000300001b5401b5501d55020000220000300014100091001e1000010000100001000e1000e1000e1000010000100001000010000100001000010000100001000010000100001000010000100001000010000100
 000300002454000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 003200003c7453c7003c7003c7003c7003c7003c7003c7053c7003c7003c7003c7003c7003c7003c7003c7003c7003c7003c7003c700000003c70000000000000000000000000000000000000000000000000000
 000100000863038000006001560001600006000060000600006000550031640006000060000600006000060000600006000060000600006000060000600006000060000600006000060000600006000060000600
 000900000c1101011013120181201a130181301c1401f140241400010000100001002615000100281502814028132281222811228112001000010000100001000010000100001000010000100001000010000100
 0001000034050300402c0402903025030210201e0201b02019020160101401012010100100e0100d0100c0100a0100901008010070100601005010030100301002020020200302004020080200d0201203017040
-0004000013522005021553200502175321e50219542195021b5421b5521b5520050200502005020050200502005020050200502005022a5020050200502005023250200502005020050200502005020050200502
+0004000013522005021553200502175321e50219542195021b5421b5521b5521d5521d5521d5521f5521f5521f5521f55200502005022a5020050200502005023250200502005020050200502005020050200502
 000200003c4503c450306002f6002f6003341031450254402c4402b4402b430004301d4202a4202541028410264002140020400004001c4000040020400204000e4001c4001a4000040000400004000040000400
-00010000066500475005650057400663008630216301c62016720146100f7100d6100a7100861007620077200762013600126000f6000d6000c60008600086000860000600006000060000600006000060000600
+00010000066500475005650057400663008630216301c62016720146100f7100d6100a7100861007620077200762013600126000f6000d6000c600086000c6000d60014600196000060000600006000060000600
+00010000296501e650287572875728757287572875728747277472674725737247372373721737207371e7271c7271a7171771715717127170f7170c717097170871706717047170371702717017170071700707
+000100000454004540055300a52010510185001150000500005000050000500005000050000500005000050000500005000050000500005000050000500005000050000500005000050000500005000050000500
+000200002c0131d0032c013180032c013140032c013100032c0131d0032c013180032c013140032c013100032c0131d0032c013180032c013140032c013100032c0131d0032c013180032c013140032c01310003
+0001000014560145501454014540155401653018530195201a5101f5102351026510305100b1400b1300e0300d030016100050000500005000050000500005000050000500005000050000500005000050000000
+010300000043000430000000000000000000000000000000000000000000000000000000000000000000043000000000000000000430004300043000000000000043000430000000000000000000000000000000
