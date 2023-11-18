@@ -4,35 +4,85 @@ __lua__
 --yggdrasil
 --by helloworldramen
 
+--[[
+data
+0:tries
+1:wins
+2:best ⧗m
+3:best ⧗s
+4:souls
+5:pal_i
+6:best chain
+7:current chain
+8:top floor
+9:endless tries
+10:run started
+62:mode
+63:bgm
+]]
+
 function _init() 
  if not cartdata"helloworldramen_yggdrasil_0" then
   dset(5,1)
  end
  
- top_flr,allow_input,
+ allow_input,
  fade_pct,target_fade_pct,
  gtime_start,gtime_m,gtime_s,aim_dir,
  turn,fturn
-  =us"10,true,1,0,0,0,0,0,0,0"
-  
- load_floor,inv_open,
+  =us"true,1,0,0,0,0,0,0,0"
+ ytiers,
+ item_names,
+ item_sprs,
+ item_tips,
+ aim_items,
+ poi,
+ mob_hps,
+	mob_atks,
+	mob_vis,
+	mob_loot_pct,
+	mob_loot,
+	mob_anims,
+	mob_fly,
+	mob_door,
+	mob_spawns,
  fade_clrs,
  dxs,dys,
  dnbors,shuf_dnbors,
+ dflt_dnbors,bat_dnbors,omni_dnbors,
  wall_sigs,
  wall_msks,
  dim_pal,
  stairb,
  pals,
  palnames,
- btnl_d,btn_t,fxs,
+ btnl_d,btn_t,fxs,baby_mobs,
  --nils
- aim_item,btn_bfr
+ aim_item,btn_bfr,
+ load_floor,inv_open,
+ task_map,task_map_fly,task_map_door
  =
-  false,false,
+  splitdict"0:4,3:4,6:4,9:4,12:3,15:3,18:3,21:2,24:2,27:1",
+  split"rice,bell,warp,map,thor,bash,trap,gun,jump,pot,grim,hook,soul",
+ 	split"237,236,238,239,235,234,233,253,252,251,250,249,254",
+ 	split"recovers ♥,makes noise,teleports you,reveals things,brings wrath,breaks things,lays spikes,piercing shot,hop obstacles,places a pot,accursed tool,grabs things,...",
+ 	splitdict"bash:t,trap:t,gun:t,jump:t,pot:t,hook:t",
+ 	splitdict"201:t,202:t,203:t,204:t,205:t,206:t",
+ 	split"5,1,1,2,1,1,1,2,3,2,9,1,99,99",
+		split"1,1,2,1,1,1,1,2,3,1,99,1,0,0",
+		split"6,4,5,0,4,4,7,2.5,5,5,0,5,0,0",
+		split"0,0.07,0.07,0.07,0.15,0.05,0.07,0.8,0.3,0.4,1,0.4,0,0",
+		split2d"0|1,2,3,4,6,8,9,10,12|1,2,3,4,6,8,9,10,12|1,2,3,4,6,7,8,9,10,12|3,9,12|1|2,4|5,6,7,8,9,12|1,4,6,6,7,7,8,8,9,9,12,12|1,6,7,8,9,12|11|1,2,3,4,5,6,7,8,9,10,12|0|0|",
+		split2d"1,2,3,4|5,6,5,7|8,9,10,11|19,20,21,20|16,17,18,17|35,36,35,37|22,23,24,23|25,26,27,28|32,32,33,33,32,32,34,34|12,13,14,15|29,29,30,30,29,29,31,31|38,39,38,40|58,58,59,59|60,61,62,63|",
+		splitdict"5:bat,11:death",
+		splitdict"1:player,3:skeleton,9:giant,10:knight,11:death,12:imp",
+		split2d"2,2,4,5|2,2,3,4,5,12|2,3,4,5,6,12|2,3,3,4,4,5,5,6,6,10,12,12|3,3,4,5,6,6,7,7,9,9,10,10,12|3,3,4,5,6,7,7,9,9,10,10,12|3,3,6,7,7,8,9,9,10,10,12|3,6,7,8,9,10|3,3,7,8,9,9,10,10",
   split"0,1,1,2,1,13,6,4,4,9,3,13,1,13,14",
   split"-1,1,0,0,1,1,-1,-1",split"0,0,-1,1,-1,1,1,-1",
   split"-1,1,-17,17",split"-1,1,-17,17",
+  split2d"-1,1,-17,17|1,-1,17,-17|-17,17,-1,1|17,-17,1,-1",
+		split2d"-16,16,-18,18|16,-16,18,-18|-18,18,-16,16|18,-18,16,-16",
+		split"-18,-17,-16,-1,1,16,17,18",
   split"251,233,253,84,146,80,16,144,112,208,241,248,210,177,225,120,179,0,124,104,161,64,240,128,224,176,242,244,116,232,178,212,247,214,254,192,48,96,32,160,245,250,243,249,246,252",
   split"0,6,0,11,13,11,15,13,3,9,0,0,9,12,6,3,12,15,3,7,14,15,0,15,6,12,0,0,3,6,12,9,0,9,0,15,15,7,15,14,0,0,0,0,0,0",
   splitdict"3:5,9:5,10:9,13:5",
@@ -50,22 +100,14 @@ function _init()
    1,,8,,0,,7,10,8,10,7,,2,7,|
   ]],
   split"summer,winter,autumn,spring,porklike,juicy,gloomy,milktea,samurai",
-  20,{},{}
-  
-		dflt_dnbors,bat_dnbors,omni_dnbors,
-		baby_mobs,task_map,task_map_fly,task_map_door
-		=
-		 split2d"-1,1,-17,17|1,-1,17,-17|-17,17,-1,1|17,-17,1,-1",
-		 split2d"-16,16,-18,18|16,-16,18,-18|-18,18,-16,16|18,-18,16,-16",
-		 split"-18,-17,-16,-1,1,16,17,18",
-		 {}
+  20,{},{},{}
 		  
  --init button tools
  for i=1,6 do 
   add(btn_t,splitdict"p:0,d:0")
  end
 
- --setup palettes
+ --setup palette setting
  pal_i=dget"5"
  function palstr()
   return "palette:"..palnames[pal_i]
@@ -79,21 +121,23 @@ function _init()
  menuitem(1,palstr(),menu_pal)
  
  --setup bgm setting
- function bgm_str()
-  return dget"63"==0 and "music: on" or "music: off"
- end
- function menu_bgm(b)
-  if b&1>0 or b&2>0 then
-   dset(63,~dget"63")
-  end
-  if floor<top_flr then
-   music2(us"0,0,7") 
-  end
-  return menuitem(_,bgm_str())
- end
- menuitem(2,bgm_str(),menu_bgm)
+ set_tglopt(us"2,63,music:on,music:off")
  
  start_game()
+end
+
+function set_tglopt(id,d_id,lbl0,lbl1)
+ local function tglopt_str()
+  return dget(d_id)==0 and lbl0 or lbl1
+ end
+ local function handle(b)
+  if (b&3>0) dset(d_id,~dget(d_id))
+  if d_id==63 and floor<top_flr then
+   music2(us"0,0,7") 
+  end
+  return menuitem(_,tglopt_str())
+ end
+ menuitem(id,tglopt_str(),handle)
 end
 
 function _update60()
@@ -119,7 +163,6 @@ function _draw()
  _draw_fn()
  draw_windows()
  set_fade(fade_pct)
- --draw_dbgs()
 end
 
 function start_game()
@@ -128,9 +171,10 @@ function start_game()
  ={},{},{},{},{},{}
  
  _upd_fn,_draw_fn,
- pc,hp_window,flr_window,
+ pc,hp_window,
+ flr_window,
  logo_t,logo_y,
- floor,death,
+ top_flr,floor,death,
  frame,inv_i,turn,maps,kills,hp_lost,
  --nils
  msg_window,item_window
@@ -139,7 +183,15 @@ function start_game()
   add_mob(us"1,0,0"),
   add_window(us"100,117,28,13,_,7"),
   add_window(us"65,117,35,13,_,7"),
-  us"15,46,-1,true,0,0,0,0,0,0"   
+  us"15,46,10,-1,true,0,0,0,0,0,0"   
+
+ --player quit midrun
+ if (dget"10">0) dset(7,0)
+ 
+  --setup endless setting
+ if dget"1">0 then
+  set_tglopt(us"3,62,mode:normal,mode:endless?")
+ end
 end
 
 
@@ -151,13 +203,22 @@ end
 function update_game()
  if (#ptcls>0) return
  
- local p_hp=pc.hp
- hp_window.txt={"♥"..p_hp.."/"..pc.mxhp}
- hp_window.clr=p_hp<4 and 8 or 7 
- hp_window.hide=not combat()
- 
- flr_window.txt={"floor "..floor}
- flr_window.hide=not combat()
+ local p_hp,flr_txt=pc.hp,"floor "..floor
+ hp_window.txt,hp_window.clr,hp_window.hide
+ =
+  {"♥"..p_hp.."/"..pc.mxhp},
+  p_hp<4 and 8 or 7,
+  not combat()
+
+ flr_window.x,
+ flr_window.w,
+ flr_window.txt,
+ flr_window.hide
+ =
+  93-#flr_txt*4,
+  7+#flr_txt*4,
+  {flr_txt},
+  not combat()
  
  if btn_bfr and p_hp>0 then
   handle_btn(btn_bfr)
@@ -171,8 +232,7 @@ function update_game()
   return
  end
  
- --handle any mob deaths.
- for m in all(mobs) do
+ foreach(mobs,function(m)
   if m.hp<=0 then
    if m.flash<=0 then
     if (m!=pc) kills+=1
@@ -184,7 +244,7 @@ function update_game()
     m.looted=true
    end
   end
- end 
+ end)
 end
 
 function update_new_floor()
@@ -216,7 +276,7 @@ function update_anim()
     lerp(i.xo,0,3),
     lerp(i.yo,0,3),
     false
-   if i.xo==0 and i.yo==0 and i.x==pc.x and i.y==pc.y then
+   if i.xo+i.yo==0 and i.x==pc.x and i.y==pc.y then
     pickup(i)
    end
   end
@@ -261,6 +321,9 @@ function update_gameover()
  =0,{},dget"2",dget"3"
  
  if btnp(🅾️) and fade_pct==0 then  
+	 --end run
+	 if (top_flr<999) dset(10,0)
+	 
 	 if pc.hp>0 then
 	  dinc"1"
 	  dinc(4,soulct())
@@ -271,7 +334,12 @@ function update_gameover()
 	   dset(2,gtime_m)
 	   dset(3,gtime_s)
 	  end
-	 end
+	  --increase chain
+	  dinc"7"
+	  if (dget"7">dget"6") dset(6,dget"7")
+	 elseif top_flr==10 then
+	  dset(7,0) --reset chain
+  end
 	 
   fade_to(1,true)
   start_game() 
@@ -349,20 +417,26 @@ function draw_game()
 
  --toasts
  foreach(toasts,function(t)
-  local m=t.mob
+  local offset,m=#t.txt*2-4,t.mob or t
   t.yo-=t.yo/20
   if t.yo<=1 then
    del(toasts,t)
-  elseif m then
-   local x=min(124,max(4,(m.x*8)-#t.txt*2+4))
-   printo(t.txt,x,m.y*8-5+t.yo,t.clr,1)
   else
-   printo(t.txt,min(105,max(4,t.x-#t.txt*2+4)),t.y+t.yo,t.clr,1)
+   printo(
+    t.txt,
+    min(126-#t.txt*3,max(4,m.x*8-offset)),
+    m.y*8-6+t.yo,
+    t.clr
+   )
   end
  end)
  
  if floor<top_flr then
   draw_inv()
+ end 
+ 
+ if dget"62"!=0 and floor==0 then
+  printo(us"endless,54,45,7")
  end
  
  --aim
@@ -403,29 +477,33 @@ function draw_gameover()
   if max_pal_i(dget"4"+soulct())>max_pal_i() then
    ?us"new palette unlocked!,25,101"
   end
+  if dget"1"==0 then
+   ?us"endless mode unlocked!,24,124"
+  elseif dget"7">0 then
+   ?(dget"7"+1).." win streak!",40,124
+  end
  end
  ?us"🅾️ to continue,38,116,7"
 end
 
 function draw_fog()
- --dim palette
  for f,t in pairs(dim_pal) do
   pal(f,getc(t))
  end
  
  forpos(function(pos)
   local x,y=posxy(pos)
-  local uncovered,item=fog[pos],get_item(x,y)
+  local uncovered,item,x8,y8=fog[pos],get_item(x,y),x*8,y*8
   if uncovered and not fov[pos] then 
    --uncovered and not currently in sight
-   spr(mget(x,y),x*8,y*8)
+   spr(mget(x,y),x8,y8)
    if item then
-    spr(208,x*8,y*8)
-    spr(item._spr,x*8,y*8)
+    spr(208,x8,y8)
+    spr(item._spr,x8,y8)
    end
   elseif not uncovered then
    --covered
-   spr(255,x*8,y*8)
+   spr(255,x8,y8)
   end
  end)
  
@@ -433,7 +511,6 @@ function draw_fog()
 end
 
 function get_anim_sprite(sprites)
- --lower is faster.
  return sprites[flr(frame/15)%#sprites+1]
 end
 
@@ -442,23 +519,16 @@ function draw_sprite(_spr,_x,_y,flash,_flipped)
   pal(8,7)
   pal(14,7)
  end
- spr(_spr, _x, _y, 1, 1, _flipped)
+ spr(_spr,_x,_y,1,1,_flipped)
  pal2()
 end
 
-function add_window(_x, _y, _w, _h, _txt, _clr)
- return add(windows,{
-  x=_x, 
-  y=_y,
-  w=_w, 
-  h=_h,
-  txt=_txt,
-  clr=_clr
- })
+function add_window(_x,_y,_w,_h,_txt,_clr)
+ return add(windows,{x=_x,y=_y,w=_w,h=_h,txt=_txt,clr=_clr})
 end
 
 function draw_windows()
- for w in all(windows) do
+ foreach(windows,function(w)
   if not w.hide then
 	  local wx,wy,ww,wh,clr=w.x,w.y,w.w,w.h,w.clr
 	  --drawing the main window with double borders
@@ -468,11 +538,10 @@ function draw_windows()
 	  wy+=4
 	  
 	  clip(wx-4, wy-4, ww-8, wh-8)
-	  for i=1, #w.txt do
-	   local _txt=w.txt[i]
+	  foreach(w.txt,function(_txt)
 	   ?_txt,wx,wy,clr
 	   wy+=6
-	  end
+	  end)
 	  clip()
 	  
 	  if w.dur then
@@ -481,15 +550,11 @@ function draw_windows()
 	    --animate collapsing the window
 	    w.h-=w.h/3 --collapse by height
 	    w.y+=w.h/6 --collapse towards center
-	    if w.h<1 then
-	     del(windows, w)
-	    end
+	    if (w.h<1) del(windows, w)
 	   end
-	  elseif w.can_btn then
-	   printo("🅾️",wx+ww-9,wy-1.5+sin(time()),clr,1) 
 	  end
 	 end
- end
+ end)
 end
 
 function show_timed_msg(msg, _dur, c)
@@ -514,18 +579,18 @@ function show_msg(texts,c,yo)
  msg_window.can_btn=true
 end
 
-function printo(txt,x,y,clr,outline_clr)
+function printo(txt,x,y,c1)
  for i=1,8 do
-  ?txt,x+dxs[i],y+dys[i],outline_clr
+  ?txt,x+dxs[i],y+dys[i],1
  end 
- ?txt,x,y,clr
+ ?txt,x,y,c1
 end
 
 function show_toast(_txt,_x,_y,_clr,dur)
  add(toasts,{
   txt=_txt,
   x=_x,
-  y=_y-5,
+  y=_y,
   yo=5,
   clr=_clr,
   dur=dur or 10
@@ -577,7 +642,7 @@ function draw_inv()
   spr(item._spr,xo+3,y+3)
   if not selecting then
    --print quantity by default
-   printo(item.qty,xo+11,y+8,7,1)
+   printo(item.qty,xo+11,y+8,7)
    --collapse existing item tips
    if (item_window) item_window.dur=0
   elseif inv_i==i and selecting then
@@ -739,26 +804,12 @@ function distance(fpos,tpos)
  return sqrt(dx^2+dy^2)
 end
 
-function bitcomp(sig,target,mask)
- local _mask=mask or 0
- return sig|_mask==target|_mask
-end
-
 function get_sig(pos,get_bit)
  local sig=0
- for d in all(split"-1,1,-17,17,-16,18,16,-18") do
+ foreach(split"-1,1,-17,17,-16,18,16,-18",function(d)
   sig=(sig<<1)|get_bit(pos+d)
- end
+ end)
  return sig
-end
-
-function get_sig_i(sig,sigs,msks)
- for i=1,#sigs do
-  if bitcomp(sig,sigs[i],msks[i]) then
-   return i
-  end
- end
- return 0
 end
 
 function split2d(s)
@@ -791,11 +842,10 @@ function combat()
 end
 
 function soulct()
- local souls=0
- foreach(inv,function(i)
-  if (i.name=="soul") souls+=i.qty
- end)
- return souls
+ for i in all(inv) do
+  if (i.name=="soul") return i.qty
+ end
+ return 0
 end
 
 function dinc(i,amt)
@@ -828,9 +878,8 @@ end
 --input
 
 function load_btn_bfr()
- if (not allow_input) return
  for i=0,5 do
-  if btnp(i) then 
+  if allow_input and btnp(i) then 
    btn_bfr=i 
    return
   end
@@ -838,49 +887,49 @@ function load_btn_bfr()
 end
 
 function read_input()
- if (not allow_input) return
- --handle special inputs first
- if (btnr(❎)) inv_open=false
-
- if inv_scroll() and inv_i>0 then
-  if not inv_open then
-   --expand items
-   inv_open=true
-   sfx2"14"
-  elseif btnps(⬅️) then
-   --change item left
-   inv_i-=1
-   sfx2"15"
-  elseif btnps(➡️) then
-   --change item right
-   inv_i+=1
-   sfx2"15"
-  end
-  inv_i=(inv_i-1)%#inv+1
-  if (#inv==0) inv_i=0
- --try getting other buttons
- elseif btnps(🅾️) then
-  handle_btn(🅾️)
- elseif btnps(❎) then
-  handle_btn(❎)
- elseif not btn(❎) and not btn(🅾️) then
-  for i=0,3 do
-   --make mvmt repeat by btnp
-   if btnp(i) then
-    if (logo_t==15) logo_t-=1
-    aim_dir=i+1
-    handle_btn(i)
-    return
-   end
-  end
- end
+ if allow_input then
+	 --handle special inputs first
+	 if (btnr(❎)) inv_open=false
+	
+	 if inv_scroll() and inv_i>0 then
+	  if not inv_open then
+	   --expand items
+	   inv_open=true
+	   sfx2"14"
+	  elseif btnps(⬅️) then
+	   --change item left
+	   inv_i-=1
+	   sfx2"15"
+	  elseif btnps(➡️) then
+	   --change item right
+	   inv_i+=1
+	   sfx2"15"
+	  end
+	  inv_i=(inv_i-1)%#inv+1
+	  if (#inv==0) inv_i=0
+	 --try getting other buttons
+	 elseif btnps(🅾️) then
+	  handle_btn(🅾️)
+	 elseif btnps(❎) then
+	  handle_btn(❎)
+	 elseif not btn(❎) and not btn(🅾️) then
+	  for i=0,3 do
+	   --make mvmt repeat by btnp
+	   if btnp(i) then
+	    if (logo_t==15) logo_t-=1
+	    aim_dir=i+1
+	    handle_btn(i)
+	    return
+	   end
+	  end
+	 end
+	end
 end
 
 function handle_btn(_btn,did_act)
  if msg_window then
   if _btn>3 then
-   msg_window.dur=0
-   msg_window=nil
+   msg_window.dur,msg_window=0,nil
   end
  elseif aim_item then
   if _btn==❎ then
@@ -1030,14 +1079,22 @@ function handle_interact(mob,tile,x,y)
  else
   if tile==222 then
    local souls=dget"4"
-   local txts={
+   local txts=dget"62"!=0 and {
+    "",
+    "   attempts: "..dget"9",
+    "    ★floor: "..dget"8",
+    ""
+   } or {
     "",
     "    attempts: "..dget"0",
     "   victories: "..dget"1",
     "",
-    "   best time: "..timestr(dget"2",dget"3"),
+    "      streak: "..dget"7",
+    "    ★streak: "..dget"6",
     "",
-    "       souls: "..souls..(max_pal_i()<9 and "/"..(4*(max_pal_i()+1)-6) or ""),
+    "      ★time: "..timestr(dget"2",dget"3"),
+    "",
+    " souls saved: "..souls..(max_pal_i()<9 and "/"..(4*(max_pal_i()+1)-6) or ""),
     "    palettes: "..max_pal_i().."/9",
     ""
    }
@@ -1052,19 +1109,6 @@ end
 
 -->8
 --mobs
-
-mob_hps,mob_atks,mob_vis,
-mob_loot_pct,mob_loot,mob_anims,
-mob_fly,mob_door,mob_spawns
-=split"5,1,1,2,1,1,1,2,3,2,10,1,99,99",
-split"1,1,2,1,1,1,1,2,3,1,99,1,0,0",
-split"6,4,5,0,4,4,7,2.5,5,5,0,5,0,0",
-split"0,0.07,0.07,0.07,0.15,0.05,0.07,0.8,0.3,0.4,1,0.4,0,0",
-split2d"0|1,2,3,4,6,8,9,10,12|1,2,3,4,6,8,9,10,12|1,2,3,4,6,7,8,9,10,12|3,9,12|1|2,4|5,6,7,8,9,12|1,4,6,6,7,7,8,8,9,9,12,12|1,6,7,8,9,12|11|1,2,3,4,5,6,7,8,9,10,12|0|0|",
-split2d"1,2,3,4|5,6,5,7|8,9,10,11|19,20,21,20|16,17,18,17|35,36,35,37|22,23,24,23|25,26,27,28|32,32,33,33,32,32,34,34|12,13,14,15|29,29,30,30,29,29,31,31|38,39,38,40|58,58,59,59|60,61,62,63|",
-splitdict"5:bat,11:death",
-splitdict"1:player,3:skeleton,9:giant,10:knight,11:death,12:imp",
-split2d"2,2,4,5|2,2,3,4,5,12|2,3,4,5,6,12|2,3,3,4,4,5,5,6,6,10,12,12|3,3,4,5,6,6,7,7,9,9,10,10,12|3,3,4,5,6,7,7,9,9,10,10,12|3,3,6,7,7,8,9,9,10,10,12|3,6,7,8,9,10|3,3,7,8,9,9,10,10"
 
 function spawn_mobs(rmap,down_pos)
  if floor==0 then
@@ -1082,12 +1126,12 @@ function spawn_mobs(rmap,down_pos)
   end 
  end)
  shuf(pmap)
- for n=1,9+floor do 
+ for n=1,min(9+floor,18) do 
   while #pmap>0 do
   	local x,y=posxy(deli(pmap,#pmap))
   	local flag=fget(mget(x,y))
   	if flag==0 or flag==4 then
-   	local mob=rnd(mob_spawns[floor])
+   	local mob=rnd(top_flr>10 and split"2,3,4,5,6,7,8,9,10,12" or mob_spawns[floor])
    	if mob!=4 or crabsafe then
    	 add_mob(mob,x,y)
    	 break
@@ -1117,7 +1161,7 @@ function crabsafe(x,y)
 end
 
 function add_mob(_typ,_x,_y)
- local m={
+ return add(mobs,{
   typ=_typ,
   x=_x,
   y=_y,
@@ -1135,12 +1179,8 @@ function add_mob(_typ,_x,_y)
   flash=0,
   flipped=false,
   task="idle",
-  task_pos=nil,
-  task_map={},
   stun=0
- }
- 
- return add(mobs,m)
+ })
 end
 
 function get_mob(x,y)
@@ -1169,13 +1209,9 @@ function hit_mob(atkr,defr,atk)
  defr.hp-=dmg
  if (defr==pc) hp_lost+=dmg
  
+ defr.flash=8
  if defr.hp<=0 then
-  defr.flash=12
-  if defr==pc then
-   defr.flash=64
-  end
- else
-  defr.flash=8
+  defr.flash=defr==pc and 64 or 12
  end
  
  if fov[mob_pos(defr)] then
@@ -1190,14 +1226,13 @@ function mob_pos(m)
 end
 
 function mob_say(m,_txt,c)
- local mpos=mob_pos(m)
  add(toasts,{
   txt=_txt,
-  x=m.x*8,
-  y=m.y*8,
+  x=m.x,
+  y=m.y,
   yo=5,
   clr=c,
-  mob=fov[mpos] and m or nil
+  mob=fov[mob_pos(m)] and m or nil
  })
 end
 
@@ -1243,7 +1278,7 @@ function update_ai()
  local ppos,tm,tmf,tmd=mob_pos(pc)
  task_map,task_map_fly,task_map_door=nil
  
- for m in all(mobs) do 
+ foreach(mobs,function(m)
   local mpos=mob_pos(m)
 
   if m.stun>0 then
@@ -1275,7 +1310,7 @@ function update_ai()
     ai_chase(m)
    end
   end
- end
+ end)
  
  foreach(baby_mobs,function(baby)
   baby=add_mob(baby.typ,baby.x,baby.y)
@@ -1296,15 +1331,17 @@ function update_ai()
  baby_mobs,is_p_turn={},true
 end
 
+function ai_dnbors(m)
+ if (m.typ>=11) return omni_dnbors
+ return rnd(m.typ==5 and bat_dnbors or dflt_dnbors)
+end
+
 function ai_idle(m)
  if m.typ==4 then
   --crab
   ai_idle_crab(m)
  elseif m.typ!=9 or turn%2!=0 then
-  local dnbs=nil
-  if (m.typ==5) dnbs=rnd(bat_dnbors)
-  if (m.typ==12) dnbs=omni_dnbors
-  ai_idle_normal(m,dnbs)
+  ai_idle_normal(m)
  end
 end
 
@@ -1317,7 +1354,7 @@ function ai_chase(m)
   if coinflip() then
    ai_idle(m)
   else
-   ai_chase_normal(m,rnd(bat_dnbors))
+   ai_chase_normal(m)
   end
  elseif m.typ==6 and ai_breed(m,0.3) then
   --rat
@@ -1326,20 +1363,15 @@ function ai_chase(m)
  elseif m.typ==11 then
   --death
    if coinflip() then
-    ai_chase_normal(m,omni_dnbors)
+    ai_chase_normal(m)
    end
- elseif m.typ==12 then
-  ai_chase_normal(m,omni_dnbors)
  else
   ai_chase_normal(m)
  end
 end
 
-function ai_idle_normal(m,m_dnbors)
- if not m_dnbors then
-  m_dnbors=rnd(dflt_dnbors)
- end
- local pos=mob_pos(m)
+function ai_idle_normal(m)
+ local m_dnbors,pos=ai_dnbors(m),mob_pos(m)
  
  for dnbor in all(m_dnbors) do
   local tpos=pos+dnbor --'to' pos
@@ -1367,11 +1399,8 @@ function ai_idle_crab(m)
  end
 end
 
-function ai_chase_normal(m,m_dnbors)
- if not m_dnbors then
-  m_dnbors=rnd(dflt_dnbors)
- end
- local pos,p_pos=mob_pos(m),m.task_pos
+function ai_chase_normal(m)
+ local m_dnbors,pos,p_pos=ai_dnbors(m),mob_pos(m),m.task_pos
  local cur_dist,min_dist,best=
    m.task_map[pos],99
  
@@ -1397,30 +1426,23 @@ end
 
 function ai_breed(m,pct)
  if not m.birthed and #mobs<30 and rnd()<pct then
-  local bpos=get_breed_pos(m)
-  if bpos then
-   local bx,by=posxy(bpos)
-   for otherbaby in all(baby_mobs) do
-    if otherbaby.x==bx and otherbaby.y==by then
-     return false
-    end
+  local mpos=mob_pos(m)
+  for dnbor in all(rnd(dflt_dnbors)) do
+   if not blocked(mpos+dnbor,"breed") then
+    local bx,by=posxy(mpos+dnbor)
+    for otherbaby in all(baby_mobs) do
+	    if otherbaby.x==bx and otherbaby.y==by then
+	     return false
+	    end
+	   end
+	   add(baby_mobs,{
+	    typ=m.typ,
+	    x=bx,
+	    y=by
+	   })
+	   m.birthed=true
+	   return true
    end
-   add(baby_mobs,{
-    typ=m.typ,
-    x=bx,
-    y=by
-   })
-   m.birthed=true
-   return true
-  end
- end
-end
-
-function get_breed_pos(m)
- local mpos=mob_pos(m)
- for dnbor in all(rnd(dflt_dnbors)) do
-  if not blocked(mpos+dnbor,"breed") then
-   return mpos+dnbor
   end
  end
 end
@@ -1466,18 +1488,6 @@ end
 -->8
 --items
 
-item_names,
-item_sprs,
-item_tips,
-aim_items,
-poi
-=
- split"rice,bell,warp,map,thor,bash,trap,gun,jump,pot,grim,hook,soul",
- split"237,236,238,239,235,234,233,253,252,251,250,249,254",
- split"recovers ♥,makes noise,teleports you,reveals things,brings wrath,breaks things,lays spikes,piercing shot,hop obstacles,places a pot,accursed tool,grabs things,...",
- splitdict"bash:t,trap:t,gun:t,jump:t,pot:t,hook:t",
- splitdict"201:t,202:t,203:t,204:t,205:t,206:t"
-
 function add_item(_id,_qty,_x,_y)
  local item
  
@@ -1494,7 +1504,7 @@ function add_item(_id,_qty,_x,_y)
  })
  
  if fov[xypos(_x,_y)] then
-  show_toast(item.name.."(".._qty..")",_x*8,_y*8,7)
+  show_toast(item.name.."(".._qty..")",_x,_y,7)
   sfx2"3"
  end
 end
@@ -1550,7 +1560,6 @@ end
 function use_item()
  if (inv_i<1) return false
 
- 
  local item,did_act=inv[inv_i],true
  local name=item.name
  
@@ -1561,11 +1570,11 @@ function use_item()
  
  item.qty-=1
  
- if name=="rice" then
+ if name=="rice" or name=="soul" and pc.mxhp>=9 then
   local heal=pc.hp<pc.mxhp and 1 or 0
   pc.hp+=heal
   mob_say(pc,"+"..heal,11)
-  sfx(13,-1,0,5)
+  sfx(us"13,-1,0,5")
  elseif name=="bell" then
   mob_say(pc,"♪",7)
   sfx"16"
@@ -1663,7 +1672,7 @@ function use_aim_item()
   if not blocked(tpos,"move") then
    trigger_trap(tx,ty)
    add_trap(tx,ty)
-   sfx(17,-1,0,1)
+   sfx(us"17,-1,0,1")
    success=true
   end
  elseif name=="gun" then
@@ -1793,8 +1802,8 @@ function new_floor()
  pc.xo,pc.yo,maps,fturn
  =
   {pc},{},{},
-  us"0,0,0,0" 
- 
+  us"0,0,0,0"
+  
  if not combat() then
   --hub/end
 	 for x=0,16 do
@@ -1810,9 +1819,19 @@ function new_floor()
  else
   --regular floor
   if floor==1 then
-   dinc"0"
+   if dget"62"!=0 then
+    top_flr=999
+    dinc"9"
+   else
+    dinc"10"
+    dinc"0"
+   end
    gtime_start=t()
   end
+  
+  --track endless floor
+	 if (top_flr>10 and floor>dget"8") dset(8,floor)
+  
   local sane,
    tmap,imap,bmap,rmap,down_pos,px,py
    =false
@@ -1848,12 +1867,6 @@ function new_floor()
 end
 	
 function map_gen(tw,th,transt)
-	--[[
-		tmap: tile map
-	 imap: id map
-	 bmap: 'bits' map
-	 rmap: room (size) map
-	]]--
  local nxt_id,stair_d,merged_ids,tmap,imap,bmap,rmap,roomsizes,
   --nil
   down_pos
@@ -2025,7 +2038,7 @@ function map_gen(tw,th,transt)
 
 	 --do doors
 	 local wls,xtra_drs=walls(),0
-	 for pos in all(wls) do
+	 foreach(wls,function(pos)
 	  local adj={}
 	  for_nb(pos,function(nb)
 	   if tmap[nb]==192 then
@@ -2037,7 +2050,7 @@ function map_gen(tw,th,transt)
 	   local need_mrg,disjoint,can_xtra=
 	    true,true,xtra_drs<1 and rnd()<0.5
 	   
-	   for merged in all(merged_ids) do
+	   foreach(merged_ids,function(merged)
 	    local isize=intersect(adj,merged)
 	    
 	    if (isize==2) need_mrg=false
@@ -2047,7 +2060,7 @@ function map_gen(tw,th,transt)
 	      set_add(merged,a)
 	     end)
 	    end
-	   end
+	   end)
 	   
 	   if need_mrg then
 	    tmap[pos]=203
@@ -2057,9 +2070,8 @@ function map_gen(tw,th,transt)
 	    xtra_drs+=1
 	   end
 	  end
-	 end
+	 end)
 
-  --remove deadends
   forpos(do_dend)
   
   --cleanup doors
@@ -2080,13 +2092,12 @@ function map_gen(tw,th,transt)
   
   --bits
   for i=1,255 do
-	  local wall_ct,rm_flr_ct=0,0
+	  local wall_ct,rm_flr_ct,b=0,0
 	  for_nb(i,function(nb)
 	   if (twall(nb)) wall_ct+=1
 	   if (rmap[nb]) rm_flr_ct+=1
 	  end)
 	  
-	  local b
 	  if rmap[i] then
 	   --in a room
 	   if 4-wall_ct>rm_flr_ct then
@@ -2120,15 +2131,21 @@ end
 
 function prettywalls()
  local ntmap={} 
- for pos=1,255 do
+ forpos(function(pos)
   if is_wall(mgetpos(pos)) then
-   local wall_sig=get_sig(pos,function(p)
+   local wall_sig,sig_i=get_sig(pos,function(p)
     return is_wall(mgetpos(p)) and 1 or 0
-   end)
-   local sig_i=get_sig_i(wall_sig,wall_sigs,wall_msks)
+   end),0
+   for i=1,#wall_sigs do
+    local _mask=wall_msks[i] or 0
+    if wall_sig|_mask==wall_sigs[i]|_mask then
+     sig_i=i
+     break
+    end
+   end
    ntmap[pos]=143+sig_i
   end
- end
+ end)
  forpos(function(pos)
   local x,y=posxy(pos)
   if (ntmap[pos]) mset(x,y,ntmap[pos])
@@ -2155,14 +2172,7 @@ function prefab(w,h,tmap,imap,bmap,rmap)
  
  for i=1,area do pmap[i]=i end
  shuf(pmap)
- 
- function ytier(y)
-  if (y<12) return 4
-  if (y<21) return 3
-  if (y<27) return 2
-  return 1
- end
- 
+  
  --getting prefabs prepared
  local rms3x3,rms5x3,rms5x5=
   {{},{},{},{}},{{},{},{},{}},{}
@@ -2176,7 +2186,7 @@ function prefab(w,h,tmap,imap,bmap,rmap)
      add(rm,mget(mx+xo,my+yo))
     end
    end
-   add(rms3x3[ytier(my)],rm)
+   add(rms3x3[ytiers[my]],rm)
   end
   --5x3 rooms
   for mx=71,101,5 do
@@ -2186,7 +2196,7 @@ function prefab(w,h,tmap,imap,bmap,rmap)
      add(rm,mget(mx+xo,my+yo))
     end
    end
-   add(rms5x3[ytier(my)],rm)
+   add(rms5x3[ytiers[my]],rm)
   end
  end
  --5x5 rooms
